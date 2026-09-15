@@ -17,6 +17,8 @@
 | 上游同步 | merge upstream/main、跟 tag 不追 commit;除接缝文件外不改上游文件,通用改动回馈上游 PR | 与甲方 2026-09-15 对话研判,详见下「上游同步」 |
 | 数据升级路径 | 随包数据分层:`~/.local/share/qingjian/dist/` 为随包层(安装器独占、每次安装整个换新),数据目录根为用户层(学习数据 + 用户自有覆盖件,查找时盖过随包层)。旧「装机不覆盖模型」方案废止 | fcitx5 StandardPaths 同款语义(用户层盖系统层);旧方案分不清「用户自己的」和「上次装的」,模型永不更新、旧 tsv 积死重(巡检二 F4,甲方 2026-09-15 拍「参考官方」) |
 | 中英切换键 | 只有 Shift 轻点,Caps Lock 不参与(**不做**,维持现状) | 甲方 2026-09-15 拍「维持现状不做」(巡检二 F7)。注:Linux 惯例里 Caps Lock 常被用户挪作他用(Ctrl/Esc/compose),macOS 的 Caps Lock=英文模式不宜跨平台照搬 |
+| 组句中 Tab / ⇧+Tab | Tab 翻下一页、⇧+Tab(到达时是 ISO_Left_Tab 0xfe20)翻上一页;英文模式 Tab 选中高亮词。对齐 macOS 口径(Linux 无云整句补全,macOS「有补全先接受」那臂用不上) | 甲方 2026-09-15 拍「翻页」(巡检四 F4-3;修复前 Tab 被兜底段吞掉成死键、⇧+Tab 在兜底段之外漏给应用) |
+| 旧格式残留收尾 | 包改带 `.qj` 后,用户层同词干 `.tsv` 再无来源可比、迁移判据永久失效;安装器把这类文件改名留档到 `$qdata/legacy-backup/`(不删、不读)并逐个提示,要找回挪回原处即可 | 甲方 2026-09-15 拍「改名留档」(巡检四 F4-2 方案 1:归属证明不了就不猜——留在原处则随包升级对这些词干永不生效) |
 
 ## 模块结构(复刻对照表)
 
@@ -76,6 +78,8 @@ shim 只做四件事,每件都是一两行转发:
 - **predict 网络栈污染所有配置消费方**(2026-09-15 打包时发现):`qingjian-platform` 的 `Config` 内嵌 `PredictConfig`,而后者与 async-openai/reqwest/openssl 网络客户端同在 `qingjian-predict` crate。结果:任何只想读配置的人(含本 Linux 壳)都被迫链入整套 HTTP/TLS 栈,`libqingjian.so` 被撑到 16MB 且引用一批 OpenSSL 符号。当前用 CMake 显式链 OpenSSL 让 `.so` 自足(`ldd` 声明 libssl/libcrypto,任何 OpenSSL 3 机器可稳定加载);**根治**应给 predict 的网络依赖加 cargo feature 开关(`client` 默认开,platform 以 `default-features = false` 只取 `PredictConfig` 纯配置类型),这样 Linux 壳不再链 openssl、.so 大幅瘦身。此项作为独立上游 PR,不塞进 Linux 壳 PR。
 
 - **模型后台接上时不补当前轮整句重排**(2026-09-15 巡检二 F3):`rescoring_pending()` 在打分器未接上时恒 false,加载窗口里敲出的那一轮永远错过重排。Linux 壳已修(`model_poll` 里接上即补查,带「未翻页未动高亮」克制守卫);**macOS 壳同款缺口**(`apps/macos/src/host/model.rs` attach 后同样不补),待提上游 issue(文案已起草,候甲方账号发出),随 logging/模型状态机提库批次一起修,别只修一边。
+
+- **preedit 光标单位三处口径不一**(2026-09-15 巡检四 F4-6):engine 侧 marked 注释说「按拼接后的字符数」,壳合同 `qj_preedit_cursor` 与 fcitx5 `Text::setCursor` 都按字节。当前 preedit 恒为 ASCII(三种 MarkedKind 都是拼音/字母),字符数==字节数无差。口径立此为准:**壳交给 fcitx5 的必须是字节偏移**;将来 preedit 引入非 ASCII 段(如纠错段)时,须在壳侧做 char→byte 换算(或把 engine 口径改成字节)。潜伏项,只立口径不改代码。
 
 - **shim 按键合同只传 keysym,不传 keycode**(2026-09-15 巡检三 R3-4):keysym 随事件当时的修饰状态漂移(Shift+1 按下是 `!`、先松 Shift 再松键是 `1`),松键记账已用「同一物理键的 shifted/unshifted 变体互认」过渡(keys.rs `shift_counterpart`,只覆盖美式布局数字排);根治是 `qingjian.h` 合同加 keycode 参数、记账改按 keycode。低危不急,改合同时顺带。
 
