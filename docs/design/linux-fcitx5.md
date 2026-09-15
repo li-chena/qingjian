@@ -77,6 +77,8 @@ shim 只做四件事,每件都是一两行转发:
 
 - **模型后台接上时不补当前轮整句重排**(2026-09-15 巡检二 F3):`rescoring_pending()` 在打分器未接上时恒 false,加载窗口里敲出的那一轮永远错过重排。Linux 壳已修(`model_poll` 里接上即补查,带「未翻页未动高亮」克制守卫);**macOS 壳同款缺口**(`apps/macos/src/host/model.rs` attach 后同样不补),待提上游 issue(文案已起草,候甲方账号发出),随 logging/模型状态机提库批次一起修,别只修一边。
 
+- **shim 按键合同只传 keysym,不传 keycode**(2026-09-15 巡检三 R3-4):keysym 随事件当时的修饰状态漂移(Shift+1 按下是 `!`、先松 Shift 再松键是 `1`),松键记账已用「同一物理键的 shifted/unshifted 变体互认」过渡(keys.rs `shift_counterpart`,只覆盖美式布局数字排);根治是 `qingjian.h` 合同加 keycode 参数、记账改按 keycode。低危不急,改合同时顺带。
+
 ## 不在本设计(记档防漂移)
 
 IBus 支持;多发行版打包(AUR/deb);图形设置界面;神经重排与云联想接入(host 层留同款接线点,能顺带则顺带,不设判据);Wayland/X11 兼容矩阵(本机环境为唯一承诺面)。
