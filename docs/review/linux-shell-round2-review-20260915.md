@@ -535,3 +535,19 @@ int main(int argc,char**argv){
 }
 // 不重新武装:fired=1(链停);带 setOneShot 重新武装:fired=3(链续)← shim 的写法
 ```
+
+---
+
+## 处置记录(2026-09-15,甲方拍板后由 leader 落实)
+
+| 发现 | 裁决 | 落点 |
+|---|---|---|
+| F1 松键漏无头 keyup | 修 | `swallowed_presses`:松键按「按下吞过没有」对称吞(keys.rs 重构 press/release 两路)+ 4 组回归测试 |
+| F2 多字节应用名 panic | 修(平台层) | `matches_app` 改 `str::get` 字符边界安全比较 + 回归测试 |
+| F3 模型接上不补当前轮 | 修 Linux 侧;macOS 同款缺口提上游 issue,随提库批次修 | `model_poll` 里刚接上且组句中即补查(带未翻页/未动高亮克制守卫)+ 真模型条件测试 |
+| F4 模型只装不更、旧 tsv 死重 | 重设计:随包数据分层(甲方拍「参考官方」= fcitx5 StandardPaths 用户层盖随包层) | `dist/` 随包层(安装器独占、装机整个换新),用户层同名文件/`model/*.qjm` 盖过它;旧布局按「与来源逐字节一致则删」迁移(沙箱实测:迁移/幂等/用户覆盖件三场景过) |
+| F5 日志初始化在防线外 | 修 | `logging::init` 改 `try_init`,重复初始化不再 panic 越 FFI |
+| F6 XDG_STATE_HOME 空串 | 修 | 空串当没设,与 paths.rs 对齐 |
+| F7 Caps Lock 不参与切换 | **不做,维持现状**(甲方拍) | 拍板记录入 `docs/design/linux-fcitx5.md` |
+
+挂账不动(维持报告原判):候选 `select()` 调用栈内释放(建议加固,未观察到崩溃);apps 缺省名单真机 app_id 校准。
