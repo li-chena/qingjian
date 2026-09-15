@@ -3,6 +3,7 @@
 #include "qingjian.h"
 
 #include <memory>
+#include <vector>
 #include <string>
 
 #include <fcitx/addonfactory.h>
@@ -106,6 +107,13 @@ public:
             auto list = std::make_unique<fcitx::CommonCandidateList>();
             const int count = qj_candidate_count();
             list->setPageSize(count > 0 ? count : 1); // 分页在 Rust 侧,这里永远单页
+            // 序号标签要自己设,CommonCandidateList 默认为空(主题只管画不管产)。
+            std::vector<std::string> labels;
+            labels.reserve(count);
+            for (int i = 0; i < count; ++i) {
+                labels.push_back(std::to_string(i + 1) + " ");
+            }
+            list->setLabels(labels);
             for (int i = 0; i < count; ++i) {
                 std::string text = qj_candidate_text(i);
                 std::string comment = qj_candidate_comment(i);
