@@ -22,6 +22,29 @@ install -Dm644 "$repo/assets/glossary/glossary-zh.tsv" "$qdata/glossary-zh.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-ja.tsv" "$qdata/glossary-ja.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-es.tsv" "$qdata/glossary-es.tsv"
 
+# 播种配置文件(已存在则不动):模糊音开常用四路,其余键列全供随手改;改完敲下个键即热生效。
+qj_config="$HOME/.config/qingjian/config.toml"
+if [[ ! -f $qj_config ]]; then
+    mkdir -p "$(dirname "$qj_config")"
+    cat > "$qj_config" <<'QJCONF'
+# 青简配置。保存后敲下一个键即生效(热加载),不用重启。
+[general]
+learning_language = "en"   # 学习语言:en 英语 / ja 日语 / es 西班牙语
+page_size = 9              # 每页候选数,1-9
+
+[fuzzy]
+z_zh = true
+c_ch = true
+s_sh = true
+n_l = true
+f_h = false
+l_r = false
+an_ang = false
+en_eng = false
+in_ing = false
+QJCONF
+fi
+
 # 青简候选窗主题(亮/暗两套)+ classicui 配置:竖排、青简主题、跟随系统明暗。
 theme_dir="$data_dir/themes"
 install -Dm644 "$repo/apps/linux/theme/qingjian/theme.conf"      "$theme_dir/qingjian/theme.conf"

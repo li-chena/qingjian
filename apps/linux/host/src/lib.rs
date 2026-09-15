@@ -50,7 +50,11 @@ pub extern "C" fn qj_init() -> bool {
         return set_init_error("HOME/XDG_DATA_HOME 都不在,找不到数据目录".to_owned());
     };
     match Host::init(dir, None) {
-        Ok(host) => {
+        Ok(mut host) => {
+            // 配置热加载:改 ~/.config/qingjian/config.toml,敲下一个键即生效。
+            if let Some(path) = host::config_path() {
+                host.watch_config(path);
+            }
             HOST.with(|slot| *slot.borrow_mut() = Some(host));
             true
         }

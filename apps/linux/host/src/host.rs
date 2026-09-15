@@ -30,8 +30,17 @@ pub struct Host {
     /// 每页候选数(配置 1–9)。
     page_size: usize,
     last_flush: std::time::Instant,
+    /// 配置热加载:watch 的文件、上次见到的修改时间、上次探测时刻。
+    config_file: Option<PathBuf>,
+    config_mtime: Option<std::time::SystemTime>,
+    last_config_check: std::time::Instant,
+    /// 当前生效的学习语言(换语言要重载释义表,记着才能比对)。
+    learning_language: Option<Language>,
     data_dir: PathBuf,
 }
+
+/// 配置探测间隔:按键路径上顺带查 mtime,改完配置敲下一个键就生效。
+const CONFIG_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// 配置文件:$XDG_CONFIG_HOME/qingjian/config.toml,缺省 ~/.config/qingjian/config.toml。
 pub fn config_path() -> Option<PathBuf> {
@@ -55,6 +64,30 @@ pub fn data_dir() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
         .map(|home| PathBuf::from(home).join(".local/share/qingjian"))
+}
+
+fn mtime_of(path: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// 按配置的学习语言挑释义表并装载;没有对应文件依次退回英语、任一存在的。
+fn load_glossary(dir: &Path, configured: &str) -> Option<(Language, Glossary)> {
+    let configured = configured.parse::<Language>().ok();
+    let language = [configured, Some(Language::English)]
+        .into_iter()
+        .flatten()
+        .find(|l| find_data(dir, &format!("glossary-{}", l.code())).is_some())?;
+    let path = find_data(dir, &format!("glossary-{}", language.code()))?;
+    match Glossary::from_path(language, &path) {
+        Ok(glossary) => {
+            tracing::info!(language = language.code(), glosses = glossary.len(), "释义表已加载");
+            Some((language, glossary))
+        }
+        Err(error) => {
+            tracing::warn!(%error, "释义表加载失败,候选无译文");
+            None
+        }
+    }
 }
 
 fn find_data(dir: &Path, stem: &str) -> Option<PathBuf> {
@@ -84,25 +117,16 @@ impl Host {
             find_data(&dir, "dict").ok_or_else(|| format!("{} 下没有 dict.qj/dict.tsv", dir.display()))?;
         let dictionary = Dictionary::from_path(&dict_path).map_err(|e| format!("词库加载失败:{e}"))?;
         let mut engine = Engine::new(dictionary);
-        // 释义表按配置的学习语言挑,没有对应文件依次退回英语、任一存在的。
-        let configured = config.general.learning_language.parse::<Language>().ok();
-        let language = [configured, Some(Language::English)]
-            .into_iter()
-            .flatten()
-            .find(|l| find_data(&dir, &format!("glossary-{}", l.code())).is_some());
-        match language {
-            Some(language) => {
-                let path = find_data(&dir, &format!("glossary-{}", language.code())).expect("刚探测过");
-                match Glossary::from_path(language, &path) {
-                    Ok(glossary) => {
-                        tracing::info!(language = language.code(), glosses = glossary.len(), "释义表已加载");
-                        engine = engine.with_translator(Box::new(glossary));
-                    }
-                    Err(error) => tracing::warn!(%error, "释义表加载失败,候选无译文"),
-                }
+        let learning_language = match load_glossary(&dir, &config.general.learning_language) {
+            Some((language, glossary)) => {
+                engine = engine.with_translator(Box::new(glossary));
+                Some(language)
             }
-            None => tracing::info!("无释义表,候选无译文"),
-        }
+            None => {
+                tracing::info!("无释义表,候选无译文");
+                None
+            }
+        };
         engine.set_fuzzy(config.fuzzy.clone());
         let learner = match FrequencyLearner::from_path(&dir.join("user.tsv")) {
             Ok(learner) => learner,
@@ -134,8 +158,53 @@ impl Host {
             shift_armed: false,
             page_size,
             last_flush: std::time::Instant::now(),
+            config_file: None,
+            config_mtime: None,
+            last_config_check: std::time::Instant::now(),
+            learning_language,
             data_dir: dir,
         })
+    }
+
+    /// 开启配置热加载:记下文件与当前 mtime,之后按键路径上周期探测。
+    pub fn watch_config(&mut self, path: PathBuf) {
+        self.config_mtime = mtime_of(&path);
+        self.config_file = Some(path);
+    }
+
+    /// 配置文件变了就重载并热应用(模糊音/每页候选数/学习语言)。
+    fn maybe_reload_config(&mut self) {
+        if self.last_config_check.elapsed() < CONFIG_CHECK_INTERVAL {
+            return;
+        }
+        self.last_config_check = std::time::Instant::now();
+        let Some(path) = self.config_file.clone() else { return };
+        let mtime = mtime_of(&path);
+        if mtime == self.config_mtime {
+            return;
+        }
+        self.config_mtime = mtime;
+        let config = match Config::load(&path) {
+            Ok(config) => config,
+            Err(error) => {
+                // 笔误不打断输入:保留旧配置继续跑,等用户改对再生效。
+                tracing::error!(%error, "配置重载失败,维持旧配置");
+                return;
+            }
+        };
+        self.engine.set_fuzzy(config.fuzzy.clone());
+        self.page_size = config.general.page_size.clamp(1, 9);
+        let wanted = load_glossary(&self.data_dir, &config.general.learning_language);
+        if wanted.as_ref().map(|(l, _)| *l) != self.learning_language
+            && let Some((language, glossary)) = wanted
+        {
+            self.engine.set_translator(Box::new(glossary));
+            self.learning_language = Some(language);
+        }
+        tracing::info!("配置已热加载");
+        if self.composing() {
+            self.refresh();
+        }
     }
 
     pub fn composing(&self) -> bool {
@@ -244,6 +313,7 @@ impl Host {
 
     /// 按键处理。返回 true = 吞掉。keyval 是 X keysym。
     pub fn key(&mut self, keyval: u32, state: u32, release: bool) -> bool {
+        self.maybe_reload_config();
         const CTRL_ALT_SUPER: u32 = (1 << 2) | (1 << 3) | (1 << 6);
         const SHIFT_KEYS: std::ops::RangeInclusive<u32> = 0xffe1..=0xffe2;
         // Shift 轻点切中英:按下预备,中间没夹别的键、松开时兑现(macOS 同款手感)。
@@ -457,6 +527,31 @@ mod tests {
         assert!(h.key(0xff0d, 0, false));
         assert_eq!(h.pending_commit.take().unwrap(), "nihao");
         assert!(!h.composing());
+    }
+
+
+    #[test]
+    fn config_hot_reload_applies_fuzzy() {
+        let dir = std::env::temp_dir().join(format!("qj-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = dir.join("config.toml");
+        std::fs::write(&cfg, "[general]\n").unwrap();
+        let mut h = sample_host();
+        h.watch_config(cfg.clone());
+        // 未开模糊:si 出不了「是」(sh 声母)
+        type_str(&mut h, "si");
+        let has_shi = |h: &Host| (0..h.layout.len())
+            .filter_map(|i| h.layout.candidate(i))
+            .any(|c| c.text == "是");
+        assert!(!has_shi(&h), "模糊未开时 si 不应出「是」");
+        h.key(0xff1b, 0, false); // Esc 清空
+        // 改配置开 s_sh,回拨探测节流与 mtime 后重新输入
+        std::fs::write(&cfg, "[fuzzy]\ns_sh = true\n").unwrap();
+        h.config_mtime = None; // 模拟 mtime 变化(文件系统秒级精度不可靠)
+        h.last_config_check = std::time::Instant::now() - CONFIG_CHECK_INTERVAL;
+        type_str(&mut h, "si");
+        assert!(has_shi(&h), "热加载 s_sh 后 si 应出「是」");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
