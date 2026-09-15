@@ -98,6 +98,16 @@ impl Host {
         self.layout.len().div_ceil(self.layout.page_size()).max(1)
     }
 
+    /// 页码指示 "当前/总页"(1 起)。只有一页时返回空串(不显示)。
+    pub fn page_indicator(&self) -> String {
+        let total = self.page_count();
+        if total <= 1 {
+            String::new()
+        } else {
+            format!("{}/{}", self.page + 1, total)
+        }
+    }
+
     pub(super) fn turn_page(&mut self, delta: isize) {
         let pages = self.page_count() as isize;
         let next = (self.page as isize + delta).clamp(0, pages - 1);

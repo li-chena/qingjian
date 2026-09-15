@@ -26,6 +26,7 @@ int qj_candidate_count();               // 当前页候选数
 const char *qj_candidate_text(int i);   // 页内第 i 格文本
 const char *qj_candidate_comment(int i); // 页内第 i 格译文("" = 无)
 int qj_highlight();                     // 页内高亮下标,-1 = 无
+const char *qj_page_indicator();        // "1/28"("" = 只有一页)
 void qj_select(int i);                  // 鼠标点选页内第 i 格
 
 void qj_set_private(bool p); // 密码框:学习/日志静音(变了才调)

@@ -218,6 +218,29 @@ fn english_mode_space_without_nav_commits_raw() {
 }
 
 #[test]
+fn page_indicator_multi_page() {
+    let mut h = sample_host();
+    // 找一个候选数超过一页的输入
+    type_str(&mut h, "shi");
+    if h.page_count() > 1 {
+        assert_eq!(
+            h.page_indicator(),
+            format!("1/{}", h.page_count()),
+            "首页应显示 1/N"
+        );
+        h.turn_page(1);
+        assert_eq!(
+            h.page_indicator(),
+            format!("2/{}", h.page_count()),
+            "翻页后应显示 2/N"
+        );
+    }
+    // 清空后无候选:无页码
+    h.reset();
+    assert_eq!(h.page_indicator(), "", "无候选时不显示页码");
+}
+
+#[test]
 fn plain_digit_still_selects_chinese() {
     // 不带修饰键的数字仍选中文,不被译词快捷键抢走。
     let mut h = sample_host();

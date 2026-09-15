@@ -161,6 +161,15 @@ pub extern "C" fn qj_candidate_comment(offset: c_int) -> *const c_char {
     hand_out(&comment.unwrap_or_default())
 }
 
+/// 页码指示 "1/28"(空串 = 只有一页,不显示)。
+#[unsafe(no_mangle)]
+pub extern "C" fn qj_page_indicator() -> *const c_char {
+    match with_host(|h| h.page_indicator()) {
+        Some(text) => hand_out(&text),
+        None => hand_out(""),
+    }
+}
+
 /// 页内高亮下标;-1 = 无。
 #[unsafe(no_mangle)]
 pub extern "C" fn qj_highlight() -> c_int {

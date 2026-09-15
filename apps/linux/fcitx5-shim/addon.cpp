@@ -131,6 +131,12 @@ public:
             if (count > 0) {
                 panel.setCandidateList(std::move(list));
             }
+            // 页码 "1/28":分页在 Rust 侧,fcitx5 只拿到当前页画不出总页数,
+            // 用辅助行(候选下方)显示,对齐 macOS 候选窗右下角页码。
+            std::string pageInfo = qj_page_indicator();
+            if (!pageInfo.empty()) {
+                panel.setAuxDown(fcitx::Text(pageInfo));
+            }
         }
         ic->updatePreedit();
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
