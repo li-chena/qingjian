@@ -9,6 +9,10 @@ repository.workspace = true
 crate-type = ["staticlib"]
 
 [dependencies]
+qingjian-core = { workspace = true }
+qingjian-dictionary = { workspace = true }
+qingjian-learning = { workspace = true }
+qingjian-translate = { workspace = true }
 tracing = { workspace = true }
 
 [lints]
