@@ -24,6 +24,9 @@ env_file="$HOME/.config/environment.d/qingjian-fcitx5.conf"
 mkdir -p "$(dirname "$env_file")"
 echo "FCITX_ADDON_DIRS=$lib_dir:/usr/lib/fcitx5" > "$env_file"
 
-echo "已安装:$lib_dir/libqingjian.so + addon/inputmethod conf"
-FCITX_ADDON_DIRS="$lib_dir:/usr/lib/fcitx5" fcitx5 -rd >/dev/null 2>&1 &
-echo "fcitx5 已带新插件重启;在输入法配置里添加「青简」即可(fcitx5-configtool)。"
+echo "已安装:$lib_dir/libqingjian.so + addon/inputmethod conf + 词库数据"
+# 延迟重启 + setsid 脱离终端:立即替换 fcitx5 会吞掉启动本脚本那次回车的松键事件,
+# Wayland 合成器会当成回车一直按着 → 终端被无限回车(0915 实锤)。
+# sleep 给松键留窗口;setsid 让新 fcitx5 不当终端的子进程。
+setsid bash -c "sleep 0.5; FCITX_ADDON_DIRS='$lib_dir:/usr/lib/fcitx5' exec fcitx5 -rd" >/dev/null 2>&1 </dev/null &
+echo "fcitx5 将在半秒后带新插件重启;在输入法配置里添加「青简」即可(fcitx5-configtool)。"
