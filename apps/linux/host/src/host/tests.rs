@@ -284,8 +284,8 @@ fn english_mode_space_without_nav_commits_raw() {
     h.key(0xffe1, 1, true);
     assert!(h.engine.english_mode());
     type_str(&mut h, "kubectl"); // 词表里多半没有的词
-    // 没动过高亮:空格应原样上屏所敲字母,不被英文候选替换
-    assert!(h.key(0x20, 0, false));
+    // 没动过高亮:空格应原样上屏所敲字母,不被英文候选替换;空格本身交给应用(巡检四 F4-1)
+    assert!(!h.key(0x20, 0, false));
     assert_eq!(h.pending_commit.take().unwrap(), "kubectl");
     assert!(!h.composing());
 }
@@ -982,4 +982,55 @@ fn fix_earlier_syllable_with_alt_arrows() {
     // Super+Backspace:删光标前全部。
     assert!(h.key(0xff08, super_, false));
     assert!(!h.composing(), "Super+Backspace 应清掉全部拼音");
+}
+
+#[test]
+fn english_mode_space_reaches_app_after_commit() {
+    // 巡检四 F4-1:英文模式空格提交后,空格本身要交给应用(macOS/Windows 同款口径),
+    // 否则英文单词之间打不出空格。中文模式空格仍是选词键、照吞。
+    let mut h = sample_host();
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode());
+    // 没动过高亮:原样上屏所敲字母,空格透传
+    type_str(&mut h, "kubectl");
+    assert!(!h.key(0x20, 0, false), "英文模式空格不该被吞");
+    assert_eq!(h.pending_commit.take().unwrap(), "kubectl");
+    assert!(!h.composing());
+    // 动过高亮:选高亮词,空格同样透传
+    type_str(&mut h, "helo");
+    h.key(0xff52, 0, false);
+    assert!(h.navigated);
+    assert!(!h.key(0x20, 0, false), "选词后的空格也不该被吞");
+    assert!(h.pending_commit.take().is_some());
+    assert!(!h.composing());
+}
+
+#[test]
+fn tab_turns_page_in_chinese_mode() {
+    // 巡检四 F4-3:组句中 Tab 翻下一页、⇧+Tab(ISO_Left_Tab 0xfe20)翻上一页
+    // (macOS 口径;Linux 无整句补全,「有补全先接受」那臂用不上)。
+    let mut config = qingjian_platform::Config::default();
+    config.general.page_size = 2;
+    let mut h = host_with(config);
+    type_str(&mut h, "shi");
+    assert!(h.page_count() > 1, "page_size=2 下 shi 应有多页候选");
+    assert!(h.key(0xff09, 0, false), "Tab 应被吞");
+    assert_eq!(h.page, 1, "Tab 应翻到下一页");
+    assert!(h.key(0xfe20, 1, false), "⇧+Tab 应被吞");
+    assert_eq!(h.page, 0, "⇧+Tab 应翻回上一页");
+    assert!(h.key(0xfe20, 1, true), "⇧+Tab 的松键应销账吞掉");
+    assert!(h.composing(), "翻页不该结束组句");
+}
+
+#[test]
+fn tab_commits_highlighted_in_english_mode() {
+    // 巡检四 F4-3:英文模式 Tab 选中高亮的词(macOS 口径)。
+    let mut h = sample_host();
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    type_str(&mut h, "helo");
+    assert!(h.key(0xff09, 0, false), "英文模式 Tab 应被吞");
+    assert!(h.pending_commit.take().is_some(), "Tab 应选中高亮词上屏");
+    assert!(!h.composing());
 }

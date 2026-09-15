@@ -63,6 +63,14 @@ put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路�
         done
     fi
     migrate_legacy "$name" "${sources[@]}"
+    # 格式换代收尾(巡检四 F4-2):包改带 .qj 之后不再有 .tsv 来源可比,旧版装的
+    # X.tsv 上面的迁移判据永远比不中,会留在用户层永久盖住随包 X.qj(随包升级从此不生效)。
+    # 归属证明不了就不猜:改名留档到 legacy-backup/(不删、不读),要找回挪回来即可。
+    if [[ $name == *.tsv && -f "$dist_new/${name%.tsv}.qj" && -f "$qdata/$name" ]]; then
+        mkdir -p "$qdata/legacy-backup"
+        mv "$qdata/$name" "$qdata/legacy-backup/$name"
+        echo "注意:$qdata/$name 已挪到 $qdata/legacy-backup/(新包数据是 ${name%.tsv}.qj,它多半是旧版安装残留,留着会盖住随包数据);若是你自有的覆盖件,挪回原处即可。"
+    fi
 }
 put_data dict.qj         lexicon/dict.qj          # 产品词库(.qj 优先于 tsv)
 put_data dict.tsv        lexicon/dict.tsv
@@ -79,9 +87,6 @@ put_data emoji-zh.tsv    emoji/emoji-zh.tsv       # emoji 候选
 put_data emoji-en.tsv    emoji/emoji-en.tsv
 put_data levels-en.tsv   levels/levels-en.tsv     # 词汇等级(统计)
 put_data levels-ja.tsv   levels/levels-ja.tsv
-[[ -f "$dist_new/dict.qj" || -f "$dist_new/dict.tsv" || -f "$qdata/dict.qj" || -f "$qdata/dict.tsv" ]] \
-    || { echo "词库缺失:分发包 data/ 或仓库里都找不到 dict.qj/dict.tsv(上一版随包数据未动)" >&2; exit 1; }
-
 # 随包领域词库(11 本,缺省只开成语,其余在配置 [dictionaries] domains 里开);
 # 用户自己的词库放 user-dicts/,不在此列。旧布局装在 $qdata/dicts,同样按逐字节一致迁移。
 for dicts_src in "$src_data/dicts" "${repo:-/nonexistent}/data/generated/dicts"; do
@@ -120,11 +125,24 @@ for model_src in "$src_data/model.qjm" "${repo:-/nonexistent}/data/model/model.q
     fi
 done
 
-# 随包层全部就绪:原子换名,旧 dist 只在新层完整落地后才删(巡检三 R3-3)。
+# 词库守卫(巡检四 F4-4):按装完后实际生效的随包层判——暂存层非空即将换层,
+# 词库必须在暂存层或用户层;暂存层为空不换层,上一版随包层 dist/ 里的也算数。
+if [[ -n "$(ls -A "$dist_new")" ]]; then
+    dict_layer="$dist_new"
+else
+    dict_layer="$qdata/dist"
+fi
+[[ -f "$dict_layer/dict.qj" || -f "$dict_layer/dict.tsv" || -f "$qdata/dict.qj" || -f "$qdata/dict.tsv" ]] \
+    || { rm -rf "$dist_new"; echo "词库缺失:分发包 data/ 或仓库里都找不到 dict.qj/dict.tsv(上一版随包数据未动)" >&2; exit 1; }
+
+# 随包层全部就绪:先把旧层挪开、新层就位之后才删(巡检三 R3-3、巡检四 F4-5)。
+# 两步换名之间无论何时被杀都不丢数据(旧层在 dist.old、新层在 dist.new,重跑安装即恢复)。
 # 本包一无所带(坏包/被裁剪)时不换:上一版随包层(含 56MB 模型)保留,只警告。
 if [[ -n "$(ls -A "$dist_new")" ]]; then
-    rm -rf "${qdata:?}/dist"
+    rm -rf "${qdata:?}/dist.old"
+    [[ ! -d "$qdata/dist" ]] || mv "$qdata/dist" "$qdata/dist.old"
     mv "$dist_new" "$qdata/dist"
+    rm -rf "${qdata:?}/dist.old"
 else
     rmdir "$dist_new"
     echo "注意:本包不带任何数据文件,保留上一版随包层 $qdata/dist 不动。" >&2

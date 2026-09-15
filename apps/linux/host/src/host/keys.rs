@@ -254,18 +254,24 @@ impl Host {
             }
             // 空格:中文模式总是上屏高亮候选;英文模式只在动过高亮后才选,
             // 没动过就把敲的字母原样上屏(词表里没有的词不被补全替换)。
-            // 直输段整段原样上屏,空格本身也交给应用(`hello, world` 里的空格要在)。
+            // 直输段与英文模式里空格本身还要交给应用(`hello, world` 里的空格要在),
+            // 中文模式空格是选词键、照吞——macOS/Windows 同款口径。
             0x20 if composing => {
                 if raw {
                     self.commit_index(self.highlighted);
                     self.engine.note_passthrough(' ');
                     return false;
                 }
-                if self.engine.english_mode() && !self.navigated {
-                    self.commit_raw();
-                } else {
-                    self.commit_index(self.highlighted);
+                if self.engine.english_mode() {
+                    if self.navigated {
+                        self.commit_index(self.highlighted);
+                    } else {
+                        self.commit_raw();
+                    }
+                    self.engine.note_passthrough(' ');
+                    return false;
                 }
+                self.commit_index(self.highlighted);
                 true
             }
             // 回车:拼音原文上屏。
@@ -326,6 +332,22 @@ impl Host {
             }
             0xff56 | 0xff9b if composing => {
                 self.turn_page(1);
+                true
+            }
+            // Tab:中文模式翻下一页,英文模式选中高亮的词(macOS 口径;
+            // Linux 无整句补全,macOS「有补全先接受」那臂在这儿用不上)。
+            0xff09 if composing => {
+                if self.engine.english_mode() {
+                    self.commit_index(self.highlighted);
+                } else {
+                    self.turn_page(1);
+                }
+                true
+            }
+            // ⇧+Tab 到达时是 ISO_Left_Tab(0xfe20),在 0xff00 兜底段之外,
+            // 不显式接管就会漏给应用、反向跳焦点作废组句。macOS 口径:上一页。
+            0xfe20 if composing => {
+                self.turn_page(-1);
                 true
             }
             // 方向键上下(含小键盘):移动高亮(跨页时页码跟随)。macOS/用户文档同款口径。
