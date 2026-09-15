@@ -48,7 +48,6 @@ impl Host {
     /// 按键处理。返回 true = 吞掉。keyval 是 X keysym。
     pub fn key(&mut self, keyval: u32, state: u32, release: bool) -> bool {
         self.maybe_reload_config();
-        const CTRL_ALT_SUPER: u32 = (1 << 2) | (1 << 3) | (1 << 6);
         const SHIFT_KEYS: std::ops::RangeInclusive<u32> = 0xffe1..=0xffe2;
         // Shift 轻点切中英:按下预备,中间没夹别的键、松开时兑现(macOS 同款手感)。
         if SHIFT_KEYS.contains(&keyval) {
@@ -64,13 +63,35 @@ impl Host {
             }
             return false; // 修饰键本身永远透传,应用要看 Shift 状态
         }
-        if !release {
-            self.shift_armed = false;
+        if release {
+            // 松键与按下对称:按下被吞的键松键也吞,按下透传的松键照样透传。
+            // 只看「按下时吞过没有」,不看当前组句状态——上屏类的键(空格/回车/数字/Esc)
+            // 按下就结束了组句,按组句状态判会把它们的松键漏给应用(无头 keyup)。
+            if let Some(i) = self.swallowed_presses.iter().position(|&k| k == keyval) {
+                self.swallowed_presses.swap_remove(i);
+                return true;
+            }
+            return false;
         }
+        self.shift_armed = false;
+        let swallow = self.press(keyval, state);
+        if swallow {
+            if !self.swallowed_presses.contains(&keyval) {
+                self.swallowed_presses.push(keyval);
+            }
+        } else {
+            // 这次按下透传了:同 keysym 的陈账(切焦点后没等到松键的)一并清掉,免得吞错以后的松键。
+            self.swallowed_presses.retain(|&k| k != keyval);
+        }
+        swallow
+    }
+
+    /// 按下事件的路由(松键在 [`Self::key`] 里按「按下吞过没有」对称处理,不进这里)。
+    fn press(&mut self, keyval: u32, state: u32) -> bool {
+        const CTRL_ALT_SUPER: u32 = CTRL | ALT | SUPER;
         // 修饰键+数字快捷键(只在组句中认):译词上屏(缺省 Alt=第一个,Alt+Shift=第二个)、删候选(缺省 Shift)。
         // 表达式模式(v2^3)里 ⇧+数字打的是 ^ * ( ),不当快捷键;配置成翻页键的字符也让位(如 "!(")。
-        if !release
-            && self.composing()
+        if self.composing()
             && !self.engine.expression_mode()
             && keyval != u32::from(self.page_keys.0)
             && keyval != u32::from(self.page_keys.1)
@@ -95,10 +116,6 @@ impl Host {
         }
         if state & CTRL_ALT_SUPER != 0 {
             return false;
-        }
-        if release {
-            // 组句期间吞掉普通键的松键,免得应用收到无头的 release;修饰键已在上面放行。
-            return self.composing() && !(0xffe1..=0xffee).contains(&keyval);
         }
         let composing = self.composing();
         // 英文直输段(缓冲区里已有 `-` 这类字符):可见字符一律追加,空格/回车整段原样上屏。

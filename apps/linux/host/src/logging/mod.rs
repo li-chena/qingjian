@@ -38,14 +38,20 @@ pub fn init() -> Option<WorkerGuard> {
     ENV_OVERRIDE.store(from_env.is_some(), Ordering::Relaxed);
     let (filter, handle) =
         reload::Layer::new(from_env.unwrap_or_else(|| filter_for(LogLevel::Info)));
-    tracing_subscriber::registry()
+    // init() 在「全局 subscriber 已被设过」时会 panic;本函数在 qj_init 的 FFI 边界上跑,
+    // panic 会越界 abort 整个 fcitx5——用 try_init 把这种情况消化成「不接管日志」。
+    if tracing_subscriber::registry()
         .with(filter)
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(writer)
                 .with_ansi(false),
         )
-        .init();
+        .try_init()
+        .is_err()
+    {
+        return None;
+    }
     let _ = FILTER.set(handle);
     Some(guard)
 }
@@ -72,7 +78,10 @@ fn filter_for(level: LogLevel) -> EnvFilter {
 
 /// 日志目录(XDG state 约定)。
 pub fn log_dir() -> Option<PathBuf> {
-    if let Some(state) = std::env::var_os("XDG_STATE_HOME") {
+    // 空串也当没设(与 paths.rs 的 XDG 判法一致),否则日志目录成了相对路径,写进 fcitx5 的 cwd。
+    if let Some(state) = std::env::var_os("XDG_STATE_HOME")
+        && !state.is_empty()
+    {
         return Some(PathBuf::from(state).join("qingjian/logs"));
     }
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/qingjian/logs"))

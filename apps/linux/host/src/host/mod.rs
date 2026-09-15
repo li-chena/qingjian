@@ -41,6 +41,10 @@ pub struct Host {
     pub pending_commit: Option<String>,
     /// Shift 轻点检测:按下 Shift 后没夹别的键,松开才算「轻点」,切中英。
     shift_armed: bool,
+
+    /// 按下被吞掉、还没等到松键的 keysym:松键按它对称吞。
+    /// 判据不能用「当前是否组句」——上屏类的键按下就结束了组句,那样判会漏无头 keyup 给应用。
+    swallowed_presses: Vec<u32>,
     /// 本轮查询里是否用方向键/翻页动过高亮。英文模式的空格只在动过之后才选高亮词,
     /// 没动过就原样上屏(打词表里没有的英文词不被补全替换)——照 macOS 语义。
     navigated: bool,
@@ -182,6 +186,7 @@ impl Host {
             preedit_cursor: 0,
             pending_commit: None,
             shift_armed: false,
+            swallowed_presses: Vec::new(),
             navigated: false,
             page_size,
             last_flush: std::time::Instant::now(),

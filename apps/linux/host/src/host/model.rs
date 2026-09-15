@@ -93,7 +93,17 @@ impl Host {
     /// 定时驱动(shim 每 20ms 调一次)。返回位掩码:
     /// bit0 = 重排结果换了排序,shim 要重画面板;bit1 = 还有事在等,继续定时。
     pub fn model_poll(&mut self) -> u32 {
+        let had_scorer = self.engine.has_sentence_scorer();
         self.attach_loaded_model();
+        if !had_scorer && self.engine.has_sentence_scorer() && self.composing() {
+            // 模型刚在后台接上:加载窗口里敲出的这一轮查询从没见过打分器,
+            // rescoring_pending 一直是 false,不补查一次这一轮就永远错过重排。
+            // (按键路径不用补:refresh 开头就 attach,随后的查询自带打分器。)
+            // 用户已翻页或动过高亮就不打扰(与下面 poll_rescoring 的克制同款)。
+            if self.page == 0 && !self.navigated {
+                self.refresh();
+            }
+        }
         if !self.composing() {
             self.rescore_deadline = None;
             self.rescore_since = None;

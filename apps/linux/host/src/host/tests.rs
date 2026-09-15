@@ -753,3 +753,97 @@ fn plain_digit_still_selects_chinese() {
         assert_eq!(h.pending_commit.take().unwrap(), expected);
     }
 }
+
+#[test]
+fn releases_swallowed_iff_press_was_swallowed() {
+    // 上屏类的键按下就结束组句:松键仍须吞,否则应用收到无头 keyup(2026-09-15 巡检 F1)。
+    for (name, keyval) in [
+        ("空格", 0x20u32),
+        ("回车", 0xff0d),
+        ("Esc", 0xff1b),
+        ("数字1", 0x31),
+    ] {
+        let mut h = sample_host();
+        type_str(&mut h, "ni");
+        assert!(h.key(keyval, 0, false), "{name} 按下应被吞");
+        assert!(!h.composing(), "{name} 按下后组句应已结束");
+        assert!(h.key(keyval, 0, true), "{name} 松键应与按下对称地被吞");
+    }
+    // 空闲时敲逗号转全角上屏:按下吞,松键同吞。
+    let mut h = sample_host();
+    assert!(h.key(0x2c, 0, false), "空闲逗号按下应被吞(转全角)");
+    assert!(h.pending_commit.take().is_some());
+    assert!(h.key(0x2c, 0, true), "空闲逗号松键应被吞");
+}
+
+#[test]
+fn rollover_releases_after_commit_are_swallowed() {
+    // 按住字母未松就敲空格上屏(rollover):字母的松键到达时组句已结束,按下是我们吞的,松键也吞。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x20, 0, false));
+    assert!(!h.composing());
+    assert!(h.key(0x69, 0, true), "i 的按下被吞过,松键也吞");
+    assert!(h.key(0x6e, 0, true), "n 同理");
+    assert!(!h.key(0x78, 0, true), "x 没按过,松键透传");
+    h.pending_commit.take();
+}
+
+#[test]
+fn passthrough_presses_keep_their_releases_passthrough() {
+    // 按下透传过的键,松键也透传(应用见过按下,吞掉松键同样制造不对称)。
+    let mut h = sample_host();
+    // 空闲敲 ]:punctuate 转不动,透传;随后组句中它的松键到达,也必须透传。
+    let press = h.key(0x5d, 0, false);
+    type_str(&mut h, "ni");
+    if !press {
+        assert!(!h.key(0x5d, 0, true), "按下透传过的 ] 组句中松键也透传");
+    }
+    // Ctrl+a:按下透传,松键透传。
+    assert!(!h.key(0x61, 1 << 2, false), "Ctrl+a 按下透传");
+    assert!(!h.key(0x61, 1 << 2, true), "Ctrl+a 松键透传");
+    // 同一键的松键只吞一次:上屏空格的松键吞过之后,再来一次(没有对应按下)就透传。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x20, 0, false));
+    assert!(h.key(0x20, 0, true));
+    assert!(!h.key(0x20, 0, true), "没有对应按下的第二次松键透传");
+    h.pending_commit.take();
+}
+
+/// 真数据在才跑(data/generated/dict.qj + data/model/model.qjm,均不进 git):
+/// 模型后台加载完成时,加载窗口里敲出的那一轮也要拿到整句重排(2026-09-15 巡检 F3)。
+#[test]
+fn model_attached_mid_composition_rescores_that_round() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..");
+    let dict = repo.join("data/generated/dict.qj");
+    let model = repo.join("data/model/model.qjm");
+    if !dict.is_file() || !model.is_file() {
+        eprintln!("跳过:没有真词库/真模型(CI 上属正常)");
+        return;
+    }
+    let dir = temp_data_dir("lateattach");
+    std::fs::remove_file(dir.join("dict.tsv")).unwrap();
+    std::os::unix::fs::symlink(&dict, dir.join("dict.qj")).unwrap();
+    std::fs::create_dir_all(dir.join("model")).unwrap();
+    std::os::unix::fs::symlink(&model, dir.join("model/model.qjm")).unwrap();
+    let mut h =
+        Host::init(dir, Some(qingjian_platform::Config::default())).expect("真词库应能装配");
+    // 模型还在后台加载时就把词敲出来(加载窗口里的那一轮)。
+    type_str(&mut h, "nihao");
+    assert!(h.model_loader.is_some(), "模型应还在后台加载");
+    // 按 shim 的方式轮询:模型接上后,这一轮必须出现重画位(bit0 = 重排换了排序要重画)。
+    let started = std::time::Instant::now();
+    let mut repainted = false;
+    while started.elapsed() < std::time::Duration::from_secs(30) {
+        if h.model_poll() & 1 != 0 {
+            repainted = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(
+        repainted,
+        "模型接上后应补重排并给出重画位,而不是这一轮永远错过"
+    );
+}
