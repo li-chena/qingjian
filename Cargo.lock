@@ -2276,6 +2276,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "qingjian-linux-host"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "qingjian-lm"
 version = "0.1.1"
 dependencies = [

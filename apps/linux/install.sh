@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# 青简 Linux 端用户级安装:不动系统目录,全部落用户目录。
+# 用法:bash apps/linux/install.sh   (装完自动重启 fcitx5)
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+so="$repo/build/fcitx5-shim/libqingjian.so"
+[[ -f $so ]] || { echo "先构建:cargo build -p qingjian-linux-host --release && cmake -S apps/linux/fcitx5-shim -B build/fcitx5-shim && cmake --build build/fcitx5-shim" >&2; exit 1; }
+
+lib_dir="$HOME/.local/lib/fcitx5"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5"
+install -Dm755 "$so" "$lib_dir/libqingjian.so"
+install -Dm644 "$repo/apps/linux/fcitx5-shim/conf/addon-qingjian.conf" "$data_dir/addon/qingjian.conf"
+install -Dm644 "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$data_dir/inputmethod/qingjian.conf"
+
+# .so 的搜索路径要靠 FCITX_ADDON_DIRS(conf 文件用户目录原生支持,不用它)。
+# 写进 environment.d 供下次登录;本次立即生效靠下面带环境变量重启。
+env_file="$HOME/.config/environment.d/qingjian-fcitx5.conf"
+mkdir -p "$(dirname "$env_file")"
+echo "FCITX_ADDON_DIRS=$lib_dir:/usr/lib/fcitx5" > "$env_file"
+
+echo "已安装:$lib_dir/libqingjian.so + addon/inputmethod conf"
+FCITX_ADDON_DIRS="$lib_dir:/usr/lib/fcitx5" fcitx5 -rd >/dev/null 2>&1 &
+echo "fcitx5 已带新插件重启;在输入法配置里添加「青简」即可(fcitx5-configtool)。"
