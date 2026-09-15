@@ -20,6 +20,32 @@ install -Dm644 "$repo/assets/glossary/glossary-en.tsv" "$qdata/glossary-en.tsv"
 install -Dm644 "$repo/assets/lexicon/english.tsv" "$qdata/english.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-zh.tsv" "$qdata/glossary-zh.tsv"
 
+# 青简候选窗主题(亮/暗两套)+ classicui 配置:竖排、青简主题、跟随系统明暗。
+theme_dir="$data_dir/themes"
+install -Dm644 "$repo/apps/linux/theme/qingjian/theme.conf"      "$theme_dir/qingjian/theme.conf"
+install -Dm644 "$repo/apps/linux/theme/qingjian/panel.svg"       "$theme_dir/qingjian/panel.svg"
+install -Dm644 "$repo/apps/linux/theme/qingjian/highlight.svg"   "$theme_dir/qingjian/highlight.svg"
+install -Dm644 "$repo/apps/linux/theme/qingjian-dark/theme.conf"    "$theme_dir/qingjian-dark/theme.conf"
+install -Dm644 "$repo/apps/linux/theme/qingjian-dark/panel.svg"     "$theme_dir/qingjian-dark/panel.svg"
+install -Dm644 "$repo/apps/linux/theme/qingjian-dark/highlight.svg" "$theme_dir/qingjian-dark/highlight.svg"
+
+classicui_conf="$HOME/.config/fcitx5/conf/classicui.conf"
+mkdir -p "$(dirname "$classicui_conf")"
+touch "$classicui_conf"
+set_conf() { # set_conf <key> <value>:有则替换,无则追加(classicui 配置是平铺 key=value)
+    local key="$1" value="$2"
+    if grep -q "^$key=" "$classicui_conf"; then
+        sed -i "s|^$key=.*|$key=$value|" "$classicui_conf"
+    else
+        echo "$key=$value" >> "$classicui_conf"
+    fi
+}
+set_conf "Theme" "qingjian"
+set_conf "DarkTheme" "qingjian-dark"
+set_conf "UseDarkTheme" "True"
+set_conf "Vertical Candidate List" "True"
+set_conf "Font" "Sans 12"
+
 # .so 的搜索路径要靠 FCITX_ADDON_DIRS(conf 文件用户目录原生支持,不用它)。
 # 写进 environment.d 供下次登录;本次立即生效靠下面带环境变量重启。
 env_file="$HOME/.config/environment.d/qingjian-fcitx5.conf"
