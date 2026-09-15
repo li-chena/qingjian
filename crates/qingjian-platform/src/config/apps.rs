@@ -131,7 +131,10 @@ fn matches_app(pattern: &str, app: &str) -> bool {
     let pattern = pattern.trim();
     match pattern.strip_suffix('*') {
         Some(prefix) => {
-            app.len() >= prefix.len() && app[..prefix.len()].eq_ignore_ascii_case(prefix)
+            // 应用名不保证 ASCII(fcitx5 的 program() 可以是任意 UTF-8 的 app_id/WM_CLASS):
+            // 按字节切片切在字符中间会 panic,get 切不动就是不匹配。
+            app.get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
         }
         None => pattern.eq_ignore_ascii_case(app),
     }
@@ -181,6 +184,20 @@ mod tests {
             apps.english_candidates_off("konsole"),
             cfg!(not(any(windows, target_os = "macos"))),
             "Linux 缺省名单按 fcitx5 的 program 名"
+        );
+    }
+
+    #[test]
+    fn prefix_patterns_survive_multibyte_app_names() {
+        // 名单里有 `*` 前缀项(如 jetbrains-)时,多字节应用名的第 prefix.len() 字节
+        // 可能落在字符中间:必须判为不匹配,不许 panic(2026-09-15 巡检 F2)。
+        let apps = AppsConfig::with_english_candidates_off(DEFAULT_ENGLISH_CANDIDATES_OFF_LINUX);
+        assert!(!apps.english_candidates_off("日本語入力テスト"));
+        assert!(!apps.english_candidates_off("abc日本語"));
+        assert!(!apps.english_candidates_off("日本語"));
+        assert!(
+            apps.english_candidates_off("jetbrains-idea"),
+            "既有前缀匹配不受影响"
         );
     }
 
