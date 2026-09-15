@@ -1,26 +1,49 @@
 #!/usr/bin/env bash
 # 青简 Linux 端用户级安装:不动系统目录,全部落用户目录。
-# 用法:bash apps/linux/install.sh   (装完自动重启 fcitx5)
+# 双模式(安装逻辑单一真相源):
+#   开发模式 = 在 git 仓库里跑(bash apps/linux/install.sh),从 build/ 与 assets/ 取。
+#   分发模式 = 在解开的安装包里跑(bash install.sh),从脚本同目录的 libqingjian.so/conf/theme/data 取。
 set -euo pipefail
 
-repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-so="$repo/build/fcitx5-shim/libqingjian.so"
-[[ -f $so ]] || { echo "先构建:cargo build -p qingjian-linux-host --release && cmake -S apps/linux/fcitx5-shim -B build/fcitx5-shim && cmake --build build/fcitx5-shim" >&2; exit 1; }
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "$here/libqingjian.so" ]]; then
+    # 分发模式:payload 就在脚本旁。
+    so="$here/libqingjian.so"
+    src_conf="$here/conf"
+    src_theme="$here/theme"
+    src_data="$here/data"
+else
+    # 开发模式:回到仓库根。
+    repo="$(cd "$here/../.." && pwd)"
+    so="$repo/build/fcitx5-shim/libqingjian.so"
+    [[ -f $so ]] || { echo "先构建:cargo build -p qingjian-linux-host --release && cmake -S apps/linux/fcitx5-shim -B build/fcitx5-shim && cmake --build build/fcitx5-shim" >&2; exit 1; }
+    src_conf="$repo/apps/linux/fcitx5-shim/conf"
+    src_theme="$repo/apps/linux/theme"
+    src_data="$repo/assets"  # 开发模式数据分散在 assets/lexicon 与 assets/glossary,下面单独处理
+fi
 
 lib_dir="$HOME/.local/lib/fcitx5"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5"
 install -Dm755 "$so" "$lib_dir/libqingjian.so"
-install -Dm644 "$repo/apps/linux/fcitx5-shim/conf/addon-qingjian.conf" "$data_dir/addon/qingjian.conf"
-install -Dm644 "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$data_dir/inputmethod/qingjian.conf"
+install -Dm644 "$src_conf/addon-qingjian.conf" "$data_dir/addon/qingjian.conf"
+install -Dm644 "$src_conf/inputmethod-qingjian.conf" "$data_dir/inputmethod/qingjian.conf"
 
-# 数据文件:全量词库 + 英语释义表(user.tsv 学习数据不碰)。
+# 数据文件:全量词库 + 各语种释义表 + 英文词表(user.tsv 学习数据不碰)。
 qdata="${XDG_DATA_HOME:-$HOME/.local/share}/qingjian"
-install -Dm644 "$repo/assets/lexicon/dict.tsv" "$qdata/dict.tsv"
-install -Dm644 "$repo/assets/glossary/glossary-en.tsv" "$qdata/glossary-en.tsv"
-install -Dm644 "$repo/assets/lexicon/english.tsv" "$qdata/english.tsv"
-install -Dm644 "$repo/assets/glossary/glossary-zh.tsv" "$qdata/glossary-zh.tsv"
-install -Dm644 "$repo/assets/glossary/glossary-ja.tsv" "$qdata/glossary-ja.tsv"
-install -Dm644 "$repo/assets/glossary/glossary-es.tsv" "$qdata/glossary-es.tsv"
+put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路径>
+    local name="$1" dev_rel="$2"
+    if [[ -f "$src_data/$name" ]]; then
+        install -Dm644 "$src_data/$name" "$qdata/$name"          # 分发模式:data/ 平铺
+    else
+        install -Dm644 "$src_data/$dev_rel" "$qdata/$name"       # 开发模式:assets 子目录
+    fi
+}
+put_data dict.tsv        lexicon/dict.tsv
+put_data glossary-en.tsv glossary/glossary-en.tsv
+put_data english.tsv     lexicon/english.tsv
+put_data glossary-zh.tsv glossary/glossary-zh.tsv
+put_data glossary-ja.tsv glossary/glossary-ja.tsv
+put_data glossary-es.tsv glossary/glossary-es.tsv
 
 # 播种配置文件(已存在则不动):模糊音开常用四路,其余键列全供随手改;改完敲下个键即热生效。
 qj_config="$HOME/.config/qingjian/config.toml"
@@ -47,12 +70,11 @@ fi
 
 # 青简候选窗主题(亮/暗两套)+ classicui 配置:竖排、青简主题、跟随系统明暗。
 theme_dir="$data_dir/themes"
-install -Dm644 "$repo/apps/linux/theme/qingjian/theme.conf"      "$theme_dir/qingjian/theme.conf"
-install -Dm644 "$repo/apps/linux/theme/qingjian/panel.svg"       "$theme_dir/qingjian/panel.svg"
-install -Dm644 "$repo/apps/linux/theme/qingjian/highlight.svg"   "$theme_dir/qingjian/highlight.svg"
-install -Dm644 "$repo/apps/linux/theme/qingjian-dark/theme.conf"    "$theme_dir/qingjian-dark/theme.conf"
-install -Dm644 "$repo/apps/linux/theme/qingjian-dark/panel.svg"     "$theme_dir/qingjian-dark/panel.svg"
-install -Dm644 "$repo/apps/linux/theme/qingjian-dark/highlight.svg" "$theme_dir/qingjian-dark/highlight.svg"
+for t in qingjian qingjian-dark; do
+    install -Dm644 "$src_theme/$t/theme.conf"    "$theme_dir/$t/theme.conf"
+    install -Dm644 "$src_theme/$t/panel.svg"     "$theme_dir/$t/panel.svg"
+    install -Dm644 "$src_theme/$t/highlight.svg" "$theme_dir/$t/highlight.svg"
+done
 
 classicui_conf="$HOME/.config/fcitx5/conf/classicui.conf"
 mkdir -p "$(dirname "$classicui_conf")"

@@ -69,6 +69,10 @@ shim 只做四件事,每件都是一两行转发:
 6. 学习与配置:词频落盘生效、TOML 热加载;密码框静默。
 7. 冒烟收口:三类应用(终端/浏览器/编辑器)实测,交甲方签字。(qlf-f)
 
+## 上游 PR 清单/待清理
+
+- **predict 网络栈污染所有配置消费方**(2026-09-15 打包时发现):`qingjian-platform` 的 `Config` 内嵌 `PredictConfig`,而后者与 async-openai/reqwest/openssl 网络客户端同在 `qingjian-predict` crate。结果:任何只想读配置的人(含本 Linux 壳)都被迫链入整套 HTTP/TLS 栈,`libqingjian.so` 被撑到 16MB 且引用一批 OpenSSL 符号。当前用 CMake 显式链 OpenSSL 让 `.so` 自足(`ldd` 声明 libssl/libcrypto,任何 OpenSSL 3 机器可稳定加载);**根治**应给 predict 的网络依赖加 cargo feature 开关(`client` 默认开,platform 以 `default-features = false` 只取 `PredictConfig` 纯配置类型),这样 Linux 壳不再链 openssl、.so 大幅瘦身。此项作为独立上游 PR,不塞进 Linux 壳 PR。
+
 ## 不在本设计(记档防漂移)
 
 IBus 支持;多发行版打包(AUR/deb);图形设置界面;神经重排与云联想接入(host 层留同款接线点,能顺带则顺带,不设判据);Wayland/X11 兼容矩阵(本机环境为唯一承诺面)。

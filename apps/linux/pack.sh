@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# 打一个自包含的青简 Linux 安装包(tarball):内含 .so + conf + 主题 + 数据 + install.sh。
+# 解开后 `bash install.sh` 即装,不依赖 git 仓库,也不需要 rust 工具链。
+# 用法:bash apps/linux/pack.sh   → 产物在 dist/qingjian-linux-<版本>.tar.gz
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+so="$repo/build/fcitx5-shim/libqingjian.so"
+[[ -f $so ]] || {
+    echo "先构建 .so:" >&2
+    echo "  cargo build -p qingjian-linux-host --release" >&2
+    echo "  cmake -S apps/linux/fcitx5-shim -B build/fcitx5-shim -DCMAKE_BUILD_TYPE=Release && cmake --build build/fcitx5-shim" >&2
+    exit 1
+}
+
+version="$(grep -m1 '^version' "$repo/apps/linux/host/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
+hash="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+name="qingjian-linux-${version}-${hash}"
+
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+payload="$stage/$name"
+mkdir -p "$payload"/{conf,theme/qingjian,theme/qingjian-dark,data}
+
+# 产物 + 元数据
+cp "$so" "$payload/libqingjian.so"
+cp "$repo/apps/linux/install.sh" "$payload/install.sh"
+cp "$repo/apps/linux/fcitx5-shim/conf/addon-qingjian.conf" "$payload/conf/"
+cp "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$payload/conf/"
+for t in qingjian qingjian-dark; do
+    cp "$repo/apps/linux/theme/$t/"* "$payload/theme/$t/"
+done
+# 数据平铺进 data/(install.sh 分发模式从这里取)
+cp "$repo/assets/lexicon/dict.tsv"        "$payload/data/"
+cp "$repo/assets/lexicon/english.tsv"     "$payload/data/"
+cp "$repo/assets/glossary/glossary-en.tsv" "$payload/data/"
+cp "$repo/assets/glossary/glossary-zh.tsv" "$payload/data/"
+cp "$repo/assets/glossary/glossary-ja.tsv" "$payload/data/"
+cp "$repo/assets/glossary/glossary-es.tsv" "$payload/data/"
+
+cat > "$payload/README.txt" <<EOF
+青简输入法 Linux 端(Fcitx5)$version-$hash
+
+安装:  bash install.sh
+卸载:  见下
+前提:  已装 fcitx5(本包只放用户目录,不动系统)
+
+装完打开 fcitx5-configtool,把「青简」加进输入法列表即可。
+配置文件在 ~/.config/qingjian/config.toml(改学习语言/模糊音,存盘即热生效)。
+
+卸载:
+  rm -f ~/.local/lib/fcitx5/libqingjian.so
+  rm -f ~/.local/share/fcitx5/addon/qingjian.conf ~/.local/share/fcitx5/inputmethod/qingjian.conf
+  rm -rf ~/.local/share/fcitx5/themes/qingjian ~/.local/share/fcitx5/themes/qingjian-dark
+  rm -f ~/.config/environment.d/qingjian-fcitx5.conf
+  (词库与学习数据在 ~/.local/share/qingjian,想彻底清也一并删)
+  然后 fcitx5 -rd 重启
+EOF
+
+mkdir -p "$repo/dist"
+out="$repo/dist/$name.tar.gz"
+tar czf "$out" -C "$stage" "$name"
+echo "安装包已生成:$out"
+echo "大小:$(du -h "$out" | cut -f1)"
+echo "分发后对方:tar xzf $name.tar.gz && cd $name && bash install.sh"

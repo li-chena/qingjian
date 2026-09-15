@@ -5,6 +5,12 @@ set(CMAKE_CXX_STANDARD 20)   # fcitx5 5.1.x 头文件用 std::ranges/std::span,2
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Fcitx5Core REQUIRED)
+# Rust staticlib 经 qingjian-platform → qingjian-predict 传递拖入 async-openai/reqwest,
+# 引用一批 OpenSSL 符号(云联想用,Linux 壳其实不调)。显式链上 libssl/libcrypto,
+# 让 .so 用 DT_NEEDED 老实声明依赖,任何装了 OpenSSL 3 的机器都能稳定加载——
+# 而不是靠宿主进程碰巧预载了 openssl。
+# (根治是给 predict 的网络依赖加 feature 开关、让只读配置的消费方不背这套栈,见上游 PR 清单。)
+find_package(OpenSSL REQUIRED)
 
 # Rust 侧 staticlib:先 cargo build -p qingjian-linux-host --release,
 # 路径可用 -DQINGJIAN_RUST_LIB=... 覆盖(默认取仓库 target/release)。
@@ -21,4 +27,5 @@ add_library(qingjian MODULE addon.cpp)
 target_link_libraries(qingjian
     Fcitx5::Core
     "${QINGJIAN_RUST_LIB}"
+    OpenSSL::SSL OpenSSL::Crypto
     pthread dl m)
