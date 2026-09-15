@@ -37,6 +37,10 @@ cp "$repo/assets/glossary/glossary-en.tsv" "$payload/data/"
 cp "$repo/assets/glossary/glossary-zh.tsv" "$payload/data/"
 cp "$repo/assets/glossary/glossary-ja.tsv" "$payload/data/"
 cp "$repo/assets/glossary/glossary-es.tsv" "$payload/data/"
+# 本地整句模型(可选):训练仓库导出的 data/model/model.qjm 在就带上,没有就不重排。
+if [[ -f "$repo/data/model/model.qjm" ]]; then
+    cp "$repo/data/model/model.qjm" "$payload/data/"
+fi
 
 cat > "$payload/README.txt" <<EOF
 青简输入法 Linux 端(Fcitx5)$version-$hash

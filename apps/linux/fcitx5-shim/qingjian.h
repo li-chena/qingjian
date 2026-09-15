@@ -29,6 +29,9 @@ int qj_highlight();                     // 页内高亮下标,-1 = 无
 const char *qj_page_indicator();        // "1/28"("" = 只有一页)
 void qj_select(int i);                  // 鼠标点选页内第 i 格
 
+// 本地整句模型定时驱动(每 20ms 调一次):bit0 = 要重画面板,bit1 = 继续定时。
+uint32_t qj_model_poll();
+
 void qj_set_private(bool p); // 密码框:学习/日志静音(变了才调)
 void qj_focus_in();
 void qj_focus_out();

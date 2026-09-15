@@ -199,6 +199,13 @@ pub extern "C" fn qj_select(offset: c_int) {
     with_host(|h| h.select_on_page(offset.max(0) as usize));
 }
 
+/// 本地整句模型的定时驱动(shim 的 fcitx5 TimeEvent 每 20ms 调一次)。
+/// 返回位掩码:bit0 = 排序变了,shim 要重画面板;bit1 = 还有事在等,继续定时。
+#[unsafe(no_mangle)]
+pub extern "C" fn qj_model_poll() -> c_uint {
+    with_host(|h| h.model_poll()).unwrap_or(0)
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn qj_focus_in() {}
 

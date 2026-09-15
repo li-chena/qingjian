@@ -11,6 +11,7 @@ impl Host {
 
     /// 重新查询并刷新候选排布(每次缓冲区变化后调)。
     pub fn refresh(&mut self) {
+        self.attach_loaded_model();
         if !self.composing() {
             self.clear_view();
             return;
@@ -28,6 +29,7 @@ impl Host {
                 self.page = self.highlighted / self.layout.page_size();
                 self.navigated = false; // 新一轮查询,高亮未被用户动过
                 self.note_displayed_page();
+                self.schedule_rescoring(); // 整句路径缺神经分:停键后送后台重排
             }
             Err(error) => {
                 // 解析不动(如纯辅音):preedit 原样显示缓冲区,不出候选。

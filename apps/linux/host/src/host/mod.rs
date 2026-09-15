@@ -3,6 +3,7 @@
 
 mod config_watch;
 mod keys;
+mod model;
 mod paths;
 mod session;
 #[cfg(test)]
@@ -59,6 +60,14 @@ pub struct Host {
     page_keys: (char, char),
     /// 英文模式给不给候选(配置 `[general] english_candidates`);关掉就是纯直通。
     english_candidates: bool,
+    /// 本地整句模型的后台加载回执;None = 没在加载。
+    model_loader: Option<model::ModelLoader>,
+    /// 配置 `[model] enabled` 当前生效值(变了才装/卸)。
+    model_enabled: bool,
+    /// 重排防抖截止:到点把攒着的整句路径送后台打分。
+    rescore_deadline: Option<std::time::Instant>,
+    /// 本轮开始等重排结果的时间(超时兜底)。
+    rescore_since: Option<std::time::Instant>,
     data_dir: PathBuf,
 }
 
@@ -124,6 +133,10 @@ impl Host {
             delete_mods: config.shortcut.delete_keys(),
             page_keys: config.general.page_keys(),
             english_candidates: config.general.english_candidates,
+            model_loader: None,
+            model_enabled: false,
+            rescore_deadline: None,
+            rescore_since: None,
             data_dir: dir,
         };
         host.apply_config(&config);

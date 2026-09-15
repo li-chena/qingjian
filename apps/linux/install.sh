@@ -45,6 +45,15 @@ put_data glossary-zh.tsv glossary/glossary-zh.tsv
 put_data glossary-ja.tsv glossary/glossary-ja.tsv
 put_data glossary-es.tsv glossary/glossary-es.tsv
 
+# 本地整句模型(可选):包里带了就装到用户数据目录 model/,没带就不重排。
+# 用户自己的 .qjm 放同一目录且优先(装机不覆盖已有文件)。
+for model_src in "$src_data/model.qjm" "${repo:-/nonexistent}/data/model/model.qjm"; do
+    if [[ -f $model_src && ! -f "$qdata/model/model.qjm" ]]; then
+        install -Dm644 "$model_src" "$qdata/model/model.qjm"
+        break
+    fi
+done
+
 # 播种配置文件(已存在则不动):模糊音开常用四路,其余键列全供随手改;改完敲下个键即热生效。
 qj_config="$HOME/.config/qingjian/config.toml"
 if [[ ! -f $qj_config ]]; then

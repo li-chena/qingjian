@@ -33,6 +33,14 @@ impl Host {
         self.page_size = config.general.page_size();
         self.page_keys = config.general.page_keys();
         self.english_candidates = config.general.english_candidates;
+        if config.model.enabled != self.model_enabled {
+            self.model_enabled = config.model.enabled;
+            if self.model_enabled {
+                self.load_local_model();
+            } else {
+                self.unload_local_model();
+            }
+        }
     }
 
     /// 配置文件变了就重载并热应用(整份套用见 [`Self::apply_config`],另加学习语言的释义表切换)。

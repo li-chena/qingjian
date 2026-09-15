@@ -14,7 +14,12 @@
 #include <fcitx/inputmethodengine.h>
 #include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
+#include <fcitx-utils/event.h>
 #include <fcitx-utils/log.h>
+#include <fcitx-utils/trackableobject.h>
+
+// 本地整句模型的轮询间隔(微秒):模型一次二三十毫秒,20ms 一问。
+constexpr uint64_t kModelPollUsec = 20000;
 
 namespace {
 
@@ -68,6 +73,9 @@ public:
         // 未吞掉的键也要同步:比如「组句中敲半角标点」= 候选先上屏、字符再透传,
         // 上屏文本必须赶在放行的按键之前发给应用。
         sync(event.inputContext());
+        // 本地整句模型:每个键之后起(重起)轮询,Rust 侧状态机没事等会让它停。
+        lastIc_ = event.inputContext()->watch();
+        armModelTimer();
     }
 
     void activate(const fcitx::InputMethodEntry & /*entry*/,
@@ -149,11 +157,38 @@ public:
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
 
+    // 本地整句模型的定时驱动:20ms 一问 Rust 侧状态机(防抖/请求/收分都在那边),
+    // 要重画就重画,没事等了就不再续期,平时不占 CPU。
+    void armModelTimer() {
+        if (modelTimer_) {
+            modelTimer_->setNextInterval(kModelPollUsec);
+            modelTimer_->setOneShot();
+            return;
+        }
+        modelTimer_ = instance_->eventLoop().addTimeEvent(
+            CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + kModelPollUsec, 0,
+            [this](fcitx::EventSourceTime *source, uint64_t /*usec*/) {
+                const uint32_t poll = qj_model_poll();
+                if (poll & 1) {
+                    if (auto *ic = lastIc_.get()) {
+                        sync(ic);
+                    }
+                }
+                if (poll & 2) {
+                    source->setNextInterval(kModelPollUsec);
+                    source->setOneShot();
+                }
+                return true;
+            });
+    }
+
 private:
     fcitx::Instance *instance_;
     bool ready_ = false;
     bool lastPrivate_ = false;
     bool panelShown_ = false;
+    std::unique_ptr<fcitx::EventSourceTime> modelTimer_;
+    fcitx::TrackableObjectReference<fcitx::InputContext> lastIc_;
 };
 
 // 点选:全局拿引擎不方便,直接调 Rust 再让事件循环里的 sync 兜底——

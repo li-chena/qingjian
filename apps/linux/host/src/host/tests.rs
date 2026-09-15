@@ -454,6 +454,64 @@ fn config_hot_reload_applies_new_fields() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// 假打分器:偏爱指定句子,其余打大负分(引擎自己的重排测试同款思路)。
+struct Prefers(&'static str);
+
+impl qingjian_core::sentence::SentenceScorer for Prefers {
+    fn score(&self, _context: &str, texts: &[&str]) -> Vec<f64> {
+        texts
+            .iter()
+            .map(|t| if *t == self.0 { 0.0 } else { -100.0 })
+            .collect()
+    }
+}
+
+#[test]
+fn model_poll_idle_is_inert() {
+    // 没接模型:定时问一句立刻歇,不空转。
+    let mut h = sample_host();
+    assert_eq!(h.model_poll(), 0, "无模型无组句时应返回 0(停定时器)");
+    type_str(&mut h, "ni");
+    assert_eq!(h.model_poll(), 0, "无模型时组句中也没什么可等");
+}
+
+#[test]
+fn model_rescoring_requests_after_debounce_and_repaints() {
+    // 接上异步打分器 → 敲拼音攒下整句路径 → 防抖到点发请求 → 分回来要求重画。
+    let mut h = sample_host();
+    h.engine
+        .set_async_sentence_scorer(Some(Box::new(Prefers("你好"))));
+    type_str(&mut h, "nihao");
+    assert!(h.engine.rescoring_pending(), "组句后应有整句路径等着打分");
+    assert!(h.rescore_deadline.is_some(), "查询后应起防抖计时");
+    // 把防抖截止拨到现在,循环 poll 等后台线程把分送回来。
+    h.rescore_deadline = Some(std::time::Instant::now());
+    let start = std::time::Instant::now();
+    let mut repainted = false;
+    while start.elapsed() < std::time::Duration::from_secs(2) {
+        if h.model_poll() & 1 != 0 {
+            repainted = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(repainted, "重排结果到了应要求重画");
+    assert!(h.composing(), "重画只是换排序,组句不受影响");
+}
+
+#[test]
+fn model_config_disable_unloads_scorer() {
+    // 热加载 [model] enabled = false:卸掉打分器,不再重排。
+    let mut h = sample_host();
+    h.engine
+        .set_async_sentence_scorer(Some(Box::new(Prefers("你好"))));
+    assert!(h.engine.has_sentence_scorer());
+    let mut config = qingjian_platform::Config::default();
+    config.model.enabled = false;
+    h.apply_config(&config);
+    assert!(!h.engine.has_sentence_scorer(), "关掉配置应卸掉打分器");
+}
+
 #[test]
 fn plain_digit_still_selects_chinese() {
     // 不带修饰键的数字仍选中文,不被译词快捷键抢走。
