@@ -68,8 +68,10 @@ impl Host {
             self.shift_armed = false;
         }
         // 修饰键+数字快捷键(只在组句中认):译词上屏(缺省 Alt=第一个,Alt+Shift=第二个)、删候选(缺省 Shift)。
+        // 表达式模式(v2^3)里 ⇧+数字打的是 ^ * ( ),不当快捷键。
         if !release
             && self.composing()
+            && !self.engine.expression_mode()
             && let Some(offset) = digit_offset(keyval).or_else(|| shifted_digit_offset(keyval))
         {
             let pressed = state & (SHIFT | CTRL | ALT | SUPER);
@@ -99,6 +101,11 @@ impl Host {
         let composing = self.composing();
         // 英文直输段(缓冲区里已有 `-` 这类字符):可见字符一律追加,空格/回车整段原样上屏。
         let raw = composing && self.engine.raw_mode();
+        // 表达式模式(v 开头):数字与运算符进缓冲区,不当选词/翻页键。
+        let expression = composing && self.engine.expression_mode();
+        // 问字模式(u 开头)敲的还可能是码点(u4e00、u+1f600):数字与 + 进缓冲区而不是选词。
+        let question = composing && self.engine.question_mode();
+        let unicode = question && self.engine.unicode_entry();
         match keyval {
             // a-z:进缓冲区。英文候选关着时的英文模式是纯直通,字母不进缓冲区。
             0x61..=0x7a => {
@@ -116,8 +123,28 @@ impl Host {
                 self.refresh();
                 true
             }
+            // 表达式模式的数字与运算符(+ - * / ^ 括号小数点):进缓冲区。
+            _ if expression
+                && (0x21..=0x7e).contains(&keyval)
+                && qingjian_core::shortcut::is_expression_char(keyval as u8 as char) =>
+            {
+                self.engine.push(keyval as u8 as char);
+                self.refresh();
+                true
+            }
+            // 问字模式的码点输入:数字(含 0)与 + 进缓冲区(十六进制字母走上面的 a-z)。
+            _ if unicode && (matches!(keyval, 0x30..=0x39 | 0x2b)) => {
+                self.engine.push(keyval as u8 as char);
+                self.refresh();
+                true
+            }
+            _ if unicode && (0xffb0..=0xffb9).contains(&keyval) => {
+                self.engine.push((b'0' + (keyval - 0xffb0) as u8) as char);
+                self.refresh();
+                true
+            }
             // 数字 1-9(含小键盘):组句中按页内序号上屏。
-            _ if composing && digit_offset(keyval).is_some() => {
+            _ if composing && !expression && !unicode && digit_offset(keyval).is_some() => {
                 let offset = digit_offset(keyval).expect("刚匹配过");
                 let index = self.page * self.layout.page_size() + offset;
                 if self.layout.candidate(index).is_some() {
@@ -170,7 +197,8 @@ impl Host {
                 true
             }
             // 组句中敲 `-`:进入英文直输段(`no-way`),不当翻页键——翻页键见配置 `[general] page_keys`。
-            0x2d if composing => {
+            // 表达式的 `-` 是运算符,已在上面进缓冲;问字模式不进直输段。
+            0x2d if composing && !question => {
                 self.engine.push('-');
                 self.refresh();
                 true

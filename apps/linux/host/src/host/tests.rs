@@ -454,6 +454,53 @@ fn config_hot_reload_applies_new_fields() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn expression_mode_takes_digits_and_operators() {
+    // v1+2:表达式模式里数字与运算符进缓冲区,不当选词键/标点;候选出 3。
+    let mut h = sample_host();
+    type_str(&mut h, "v");
+    assert!(h.engine.expression_mode(), "v 应进入表达式模式");
+    assert!(h.key(0x31, 0, false), "表达式里 1 应进缓冲区");
+    assert!(h.key(0x2b, 1, false), "+(Shift+=)应进缓冲区");
+    assert!(h.key(0x32, 0, false), "表达式里 2 应进缓冲区");
+    assert!(h.pending_commit.is_none(), "追加过程不上屏");
+    let has_result = (0..h.layout.len())
+        .filter_map(|i| h.layout.candidate(i))
+        .any(|c| c.text == "3");
+    assert!(has_result, "v1+2 的候选里应有 3");
+    // 表达式里 Shift+( 是括号,不当删词/译词快捷键
+    assert!(h.key(0x28, 1, false), "( 应进缓冲区");
+    assert!(h.composing());
+    assert!(h.pending_commit.is_none(), "( 不应触发删词或上屏");
+}
+
+#[test]
+fn unicode_entry_takes_digits() {
+    // u4e00:问字模式的码点输入,数字进缓冲区,候选出「一」。
+    let mut h = sample_host();
+    type_str(&mut h, "u");
+    assert!(h.engine.question_mode(), "u 应进入问字模式");
+    assert!(h.key(0x34, 0, false), "码点里 4 应进缓冲区");
+    type_str(&mut h, "e");
+    assert!(h.key(0x30, 0, false), "码点里 0 应进缓冲区");
+    assert!(h.key(0x30, 0, false));
+    let has_char = (0..h.layout.len())
+        .filter_map(|i| h.layout.candidate(i))
+        .any(|c| c.text == "一");
+    assert!(has_char, "u4e00 的候选里应有「一」");
+}
+
+#[test]
+fn correction_gives_intended_candidate() {
+    // 拼写纠错(引擎侧,验证 Linux 按键路径畅通):nihoa 应仍给出「你好」。
+    let mut h = sample_host();
+    type_str(&mut h, "nihoa");
+    let has = (0..h.layout.len())
+        .filter_map(|i| h.layout.candidate(i))
+        .any(|c| c.text == "你好");
+    assert!(has, "nihoa 应纠错给出「你好」");
+}
+
 /// 假打分器:偏爱指定句子,其余打大负分(引擎自己的重排测试同款思路)。
 struct Prefers(&'static str);
 
