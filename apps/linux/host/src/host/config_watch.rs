@@ -37,6 +37,7 @@ impl Host {
             }
         };
         self.engine.set_fuzzy(config.fuzzy);
+        self.translation_mods = config.shortcut.translation_keys();
         self.page_size = config.general.page_size.clamp(1, 9);
         let wanted = load_glossary(&self.data_dir, &config.general.learning_language);
         if wanted.as_ref().map(|(l, _)| *l) != self.learning_language

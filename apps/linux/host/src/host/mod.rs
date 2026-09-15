@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use qingjian_core::{CandidateLayout, Engine, Language};
 use qingjian_dictionary::{Dictionary, WordList};
 use qingjian_learning::FrequencyLearner;
-use qingjian_platform::Config;
+use qingjian_platform::{Config, Modifiers};
 use qingjian_translate::Glossary;
 
 pub use paths::{config_path, data_dir};
@@ -48,6 +48,8 @@ pub struct Host {
     last_config_check: std::time::Instant,
     /// 当前生效的学习语言(换语言要重载释义表,记着才能比对)。
     learning_language: Option<Language>,
+    /// 译词快捷键的两组修饰键(数字键配它:上屏第一/第二个译词)。
+    translation_mods: (Modifiers, Modifiers),
     data_dir: PathBuf,
 }
 
@@ -109,6 +111,7 @@ impl Host {
             config_mtime: None,
             last_config_check: std::time::Instant::now(),
             learning_language,
+            translation_mods: config.shortcut.translation_keys(),
             data_dir: dir,
         })
     }

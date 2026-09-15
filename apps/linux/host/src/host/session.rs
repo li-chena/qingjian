@@ -108,4 +108,15 @@ impl Host {
         let _ = &self.data_dir; // user.tsv 路径在 learner 里;flush 由 Engine 统一发。
         self.engine.flush_learning();
     }
+    /// 上屏当前页第 `offset` 格的第 `sense` 个译词(译词快捷键)。译词缺位就什么都不做。
+    pub(super) fn commit_translation_on_page(&mut self, offset: usize, sense: usize) {
+        let index = self.page * self.layout.page_size() + offset;
+        let Some(candidate) = self.layout.candidate(index).cloned() else {
+            return;
+        };
+        if let Some(text) = self.engine.commit_translation(&candidate, sense) {
+            self.push_commit(text);
+            self.refresh();
+        }
+    }
 }

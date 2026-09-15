@@ -2,8 +2,6 @@
 
 use super::*;
 
-use super::*;
-
 fn sample_host() -> Host {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/sample");
     Host::init(dir, Some(qingjian_platform::Config::default())).expect("样例数据应能装配")
@@ -155,4 +153,53 @@ fn private_mode_smoke() {
         "私密模式照常上屏,只是不学习"
     );
     h.set_private(false);
+}
+
+#[test]
+fn keypad_digit_selects() {
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    let second = h.layout.candidate(1).map(|c| c.text.clone());
+    assert!(h.key(0xffb2, 0, false), "小键盘 2 应被吞掉");
+    if let Some(expected) = second {
+        assert_eq!(h.pending_commit.take().unwrap(), expected);
+    }
+}
+
+#[test]
+fn translation_shortcut_commits_gloss() {
+    let mut h = sample_host();
+    // 找到当前页第一个带译文的候选,用 Alt+对应数字上屏其译文。
+    let mut target = None;
+    type_str(&mut h, "ni");
+    for off in 0..h.layout.page_size() {
+        if let Some(c) = h.layout.candidate(off)
+            && let Some(t) = &c.translation
+            && let Some(sense) = t.senses().first()
+        {
+            target = Some((off, sense.text.clone()));
+            break;
+        }
+    }
+    let (off, gloss) = target.expect("样例里应有带译文的候选");
+    // Alt = 1<<3 = 0x8;数字键 '1'+off。
+    let keyval = 0x31 + off as u32;
+    assert!(h.key(keyval, 1 << 3, false), "Alt+数字应被吞掉");
+    assert_eq!(
+        h.pending_commit.take().unwrap(),
+        gloss,
+        "应上屏译文而非中文"
+    );
+}
+
+#[test]
+fn plain_digit_still_selects_chinese() {
+    // 不带修饰键的数字仍选中文,不被译词快捷键抢走。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    let first = h.layout.candidate(0).map(|c| c.text.clone());
+    assert!(h.key(0x31, 0, false));
+    if let Some(expected) = first {
+        assert_eq!(h.pending_commit.take().unwrap(), expected);
+    }
 }
