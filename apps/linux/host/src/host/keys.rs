@@ -136,6 +136,44 @@ impl Host {
                 }
             }
         }
+        // 修饰键+方向/退格(只在组句中认,macOS 同款,见 docs/user/getting-started/keys.md):
+        // Alt=按音节移光标/删音节(⌥ 对应),Super=光标到头尾/删到头(⌘ 对应)。
+        if self.composing() {
+            let pressed = state & (SHIFT | CTRL | ALT | SUPER);
+            match (keyval, pressed) {
+                (0xff51 | 0xff96, ALT) => {
+                    self.engine.move_cursor_syllable_left();
+                    self.refresh();
+                    return true;
+                }
+                (0xff53 | 0xff98, ALT) => {
+                    self.engine.move_cursor_syllable_right();
+                    self.refresh();
+                    return true;
+                }
+                (0xff51 | 0xff96, SUPER) => {
+                    self.engine.move_cursor_home();
+                    self.refresh();
+                    return true;
+                }
+                (0xff53 | 0xff98, SUPER) => {
+                    self.engine.move_cursor_end();
+                    self.refresh();
+                    return true;
+                }
+                (0xff08, ALT) => {
+                    self.engine.delete_syllable_backward();
+                    self.refresh();
+                    return true;
+                }
+                (0xff08, SUPER) => {
+                    self.engine.delete_to_start();
+                    self.refresh();
+                    return true;
+                }
+                _ => {}
+            }
+        }
         if state & CTRL_ALT_SUPER != 0 {
             return false;
         }
@@ -282,21 +320,43 @@ impl Host {
                 self.refresh();
                 true
             }
-            0xff55 | 0xff9a | 0xff52 | 0xff97 if composing => {
+            0xff55 | 0xff9a if composing => {
                 self.turn_page(-1);
                 true
             }
-            0xff56 | 0xff9b | 0xff54 | 0xff99 if composing => {
+            0xff56 | 0xff9b if composing => {
                 self.turn_page(1);
                 true
             }
-            // 方向键左右(含小键盘):移动高亮。
-            0xff51 | 0xff96 if composing => {
+            // 方向键上下(含小键盘):移动高亮(跨页时页码跟随)。macOS/用户文档同款口径。
+            0xff52 | 0xff97 if composing => {
                 self.move_highlight(-1);
                 true
             }
-            0xff53 | 0xff98 if composing => {
+            0xff54 | 0xff99 if composing => {
                 self.move_highlight(1);
+                true
+            }
+            // 方向键左右(含小键盘):移动拼音光标——候选只按光标之前的拼音计算(ni|hao 出 你)。
+            0xff51 | 0xff96 if composing => {
+                self.engine.move_cursor_left();
+                self.refresh();
+                true
+            }
+            0xff53 | 0xff98 if composing => {
+                self.engine.move_cursor_right();
+                self.refresh();
+                true
+            }
+            // Home / End(含小键盘):光标到开头 / 末尾。
+            0xff50 | 0xff95 if composing => {
+                self.engine.move_cursor_home();
+                self.refresh();
+                true
+            }
+            0xff57 | 0xff9c if composing => {
+                self.engine.move_cursor_end();
+                self.refresh();
                 true
             }
             // Shift 按住打的大写字母:临时打英文——拼音原样上屏,字母本身透传给应用。

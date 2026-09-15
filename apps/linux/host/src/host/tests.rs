@@ -933,3 +933,53 @@ fn shifted_digit_release_swallowed_across_keysym_drift() {
     );
     assert!(!h.key(0x21, 0, true), "! 的陈账确实没了");
 }
+
+#[test]
+fn arrow_keys_follow_documented_semantics() {
+    // 与用户文档/macOS 对齐:←/→=移动拼音光标(候选按光标前拼音算),↑/↓=移动高亮,
+    // Home/End=光标到开头/末尾。此前 Linux 壳把 ←/→ 错接成移高亮、↑/↓ 错接成翻页。
+    let mut h = sample_host();
+    type_str(&mut h, "nihao");
+    let end = h.preedit_cursor;
+    assert!(h.key(0xff51, 0, false), "← 应被吞");
+    assert!(h.preedit_cursor < end, "← 应左移拼音光标");
+    assert!(h.key(0xff50, 0, false), "Home 应被吞");
+    assert_eq!(h.preedit_cursor, 0, "Home 光标应到开头");
+    assert!(h.key(0xff57, 0, false), "End 应被吞");
+    assert_eq!(h.preedit_cursor, end, "End 应回到末尾");
+    if h.layout.len() > 1 {
+        let hl = h.highlighted;
+        assert!(h.key(0xff54, 0, false), "↓ 应被吞");
+        assert_eq!(h.highlighted, hl + 1, "↓ 应下移高亮");
+        assert!(h.key(0xff52, 0, false), "↑ 应被吞");
+        assert_eq!(h.highlighted, hl, "↑ 应移回");
+    }
+}
+
+#[test]
+fn fix_earlier_syllable_with_alt_arrows() {
+    // 用户文档场景:前面音节敲错 → ⌥+← 按音节移到其后 → ⌥+Backspace 删掉重输 → ⌘+→ 回末尾。
+    // Linux 对应 Alt 与 Super。
+    let mut h = sample_host();
+    type_str(&mut h, "nihao");
+    let alt = 1 << 3;
+    let super_ = 1 << 6;
+    assert!(h.key(0xff51, alt, false), "Alt+← 应被吞(按音节左移)");
+    assert!(
+        h.key(0xff08, alt, false),
+        "Alt+Backspace 应被吞(删光标前音节)"
+    );
+    assert_eq!(h.engine.composition().text(), "hao", "ni 应被整音节删掉");
+    type_str(&mut h, "ni");
+    assert_eq!(
+        h.engine.composition().text(),
+        "nihao",
+        "光标处插入重输的音节"
+    );
+    assert!(h.key(0xff53, super_, false), "Super+→ 应被吞(光标到末尾)");
+    let text_len = h.engine.composition().text().len();
+    assert_eq!(h.engine.composition().cursor(), text_len, "光标应在末尾");
+    // Super+Backspace:删光标前全部。
+    assert!(h.key(0xff08, super_, false));
+    assert!(!h.composing(), "Super+Backspace 应清掉全部拼音");
+}
