@@ -93,9 +93,14 @@ impl Host {
                 }
                 true
             }
-            // 空格:上屏高亮候选。
+            // 空格:中文模式总是上屏高亮候选;英文模式只在动过高亮后才选,
+            // 没动过就把敲的字母原样上屏(词表里没有的词不被补全替换)。
             0x20 if composing => {
-                self.commit_index(self.highlighted);
+                if self.engine.english_mode() && !self.navigated {
+                    self.commit_raw();
+                } else {
+                    self.commit_index(self.highlighted);
+                }
                 true
             }
             // 回车:拼音原文上屏。
@@ -103,11 +108,16 @@ impl Host {
                 self.commit_raw();
                 true
             }
-            // 退格。
+            // 退格:组句中删一个字符。
             0xff08 if composing => {
                 self.engine.backspace();
                 self.refresh();
                 true
+            }
+            // 不组句时的退格删的是已上屏的词:记「选错了」信号供纠错学习,按键仍透传给应用真删。
+            0xff08 => {
+                self.engine.note_backspace();
+                false
             }
             // Delete / 小键盘 Delete:光标后向前删。
             0xffff | 0xff9f if composing => {
@@ -189,6 +199,10 @@ impl Host {
         self.engine.clear();
         self.clear_view();
         self.pending_commit = None;
+        // HOST 是进程级单例(不分 InputContext):按住 Shift 点击切窗后松开,会在新窗口
+        // 静默切中英——切窗时必须撤销待兑现的 Shift 轻点。
+        self.shift_armed = false;
+        self.navigated = false;
         self.flush();
     }
 }

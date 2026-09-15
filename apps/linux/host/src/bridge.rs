@@ -14,8 +14,20 @@ thread_local! {
     static BUF: RefCell<CString> = RefCell::new(CString::default());
 }
 
+/// 在 Host 上跑一段逻辑,**捕获 panic**:extern "C" 里 panic 越过 FFI 边界会 abort 掉
+/// 整个 fcitx5 进程(所有输入法一起崩)。捕获后记日志、返回 None,当次按键退化成透传。
+/// 与 macOS 壳的 `catch_panic` 同一防线。
 fn with_host<T>(f: impl FnOnce(&mut Host) -> T) -> Option<T> {
-    HOST.with(|host| host.borrow_mut().as_mut().map(f))
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        HOST.with(|host| host.borrow_mut().as_mut().map(f))
+    }));
+    match result {
+        Ok(value) => value,
+        Err(_) => {
+            tracing::error!("引擎调用 panic 已被 FFI 边界捕获,本次按键透传");
+            None
+        }
+    }
 }
 
 /// 把字符串放进 thread_local 缓冲并返回指针(内部 NUL 替换成空格,防 panic)。
@@ -47,17 +59,21 @@ pub extern "C" fn qj_init() -> bool {
     let Some(dir) = crate::host::data_dir() else {
         return set_init_error("HOME/XDG_DATA_HOME 都不在,找不到数据目录".to_owned());
     };
-    match Host::init(dir, None) {
-        Ok(mut host) => {
-            // 配置热加载:改 ~/.config/qingjian/config.toml,敲下一个键即生效。
-            if let Some(path) = crate::host::config_path() {
-                host.watch_config(path);
-            }
-            HOST.with(|slot| *slot.borrow_mut() = Some(host));
-            true
-        }
-        Err(message) => set_init_error(message),
+    // Host::init 里加载 mmap 零拷贝 .qj 词库:文件被截断/损坏会 slice 越界 panic。
+    // 同样必须挡在 FFI 边界内(否则 fcitx5 崩溃循环,用户从 UI 无法恢复)。
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Host::init(dir, None)));
+    let host = match built {
+        Ok(Ok(host)) => host,
+        Ok(Err(message)) => return set_init_error(message),
+        Err(_) => return set_init_error("数据文件损坏或格式错误,装配时 panic(已捕获)".to_owned()),
+    };
+    let mut host = host;
+    // 配置热加载:改 ~/.config/qingjian/config.toml,敲下一个键即生效。
+    if let Some(path) = crate::host::config_path() {
+        host.watch_config(path);
     }
+    HOST.with(|slot| *slot.borrow_mut() = Some(host));
+    true
 }
 
 thread_local! {

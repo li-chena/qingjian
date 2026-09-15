@@ -193,6 +193,31 @@ fn translation_shortcut_commits_gloss() {
 }
 
 #[test]
+fn reset_cancels_pending_shift_tap() {
+    // 按住 Shift(未夹别键)→ 切窗(reset)→ 松开 Shift:不应静默切中英。
+    let mut h = sample_host();
+    assert!(!h.engine.english_mode());
+    h.key(0xffe1, 0, false); // Shift 按下,shift_armed = true
+    h.reset(); // 切窗
+    h.key(0xffe1, 1, true); // 在别处松开 Shift
+    assert!(!h.engine.english_mode(), "切窗后松开 Shift 不应切换模式");
+}
+
+#[test]
+fn english_mode_space_without_nav_commits_raw() {
+    let mut h = sample_host();
+    // Shift 轻点进英文模式
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode());
+    type_str(&mut h, "kubectl"); // 词表里多半没有的词
+    // 没动过高亮:空格应原样上屏所敲字母,不被英文候选替换
+    assert!(h.key(0x20, 0, false));
+    assert_eq!(h.pending_commit.take().unwrap(), "kubectl");
+    assert!(!h.composing());
+}
+
+#[test]
 fn plain_digit_still_selects_chinese() {
     // 不带修饰键的数字仍选中文,不被译词快捷键抢走。
     let mut h = sample_host();

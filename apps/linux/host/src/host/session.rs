@@ -26,6 +26,8 @@ impl Host {
                     .find(|&i| self.layout.candidate(i).is_some())
                     .unwrap_or(0);
                 self.page = self.highlighted / self.layout.page_size();
+                self.navigated = false; // 新一轮查询,高亮未被用户动过
+                self.note_displayed_page();
             }
             Err(error) => {
                 // 解析不动(如纯辅音):preedit 原样显示缓冲区,不出候选。
@@ -35,8 +37,20 @@ impl Host {
                 self.layout = CandidateLayout::new(Vec::new(), self.page_size, CLOUD_SLOTS);
                 self.highlighted = 0;
                 self.page = 0;
+                self.note_displayed_page();
             }
         }
+    }
+
+    /// 把当前页的候选告诉 Engine:上屏那一刻它们在屏上,其译词算「见过一轮」(词汇记录)。
+    /// 每次重画换掉上一页;窗口空了传空。与 macOS 壳 `render` 里的 `note_displayed` 对齐。
+    fn note_displayed_page(&mut self) {
+        let start = self.page * self.layout.page_size();
+        let end = (start + self.layout.page_size()).min(self.layout.len());
+        let page: Vec<_> = (start..end)
+            .filter_map(|i| self.layout.candidate(i))
+            .collect();
+        self.engine.note_displayed(page);
     }
 
     pub(super) fn clear_view(&mut self) {
@@ -45,6 +59,7 @@ impl Host {
         self.page = 0;
         self.preedit.clear();
         self.preedit_cursor = 0;
+        self.engine.note_displayed(std::iter::empty());
     }
 
     /// 上屏第 `index` 格(排布内绝对下标)。
@@ -89,7 +104,9 @@ impl Host {
         if next != self.page as isize {
             self.page = next as usize;
             self.highlighted = self.page * self.layout.page_size();
+            self.navigated = true;
             self.engine.note_page_turn();
+            self.note_displayed_page(); // 翻到新页,新页候选算「见过」
         }
     }
 
@@ -99,8 +116,13 @@ impl Host {
             return;
         }
         let next = (self.highlighted as isize + delta).rem_euclid(len) as usize;
+        let old_page = self.page;
         self.highlighted = next;
         self.page = next / self.layout.page_size();
+        self.navigated = true;
+        if self.page != old_page {
+            self.note_displayed_page(); // 高亮换页(如首尾环绕)时同步
+        }
     }
 
     /// 落盘学习数据(焦点离开时调,与 macOS 的 flush 时机对齐)。

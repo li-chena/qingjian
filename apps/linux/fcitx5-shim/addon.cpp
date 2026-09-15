@@ -87,14 +87,19 @@ public:
         clearPanel(event.inputContext());
     }
 
-    // 每个被吞掉的键之后:上屏文本、重建 preedit 与候选面板。
+    // 每个键之后:上屏文本、重建 preedit 与候选面板。
     void sync(fcitx::InputContext *ic) {
         if (const char *commit = qj_take_commit()) {
             ic->commitString(commit);
         }
         std::string preedit = qj_preedit();
+        // 非组句且面板本就空:跳过无谓的 reset + UI 刷新(普通打字每键都会走到这里)。
+        if (preedit.empty() && !panelShown_) {
+            return;
+        }
         auto &panel = ic->inputPanel();
         panel.reset();
+        panelShown_ = !preedit.empty();
         if (!preedit.empty()) {
             const int cursor = qj_preedit_cursor();
             fcitx::Text preeditText(preedit, fcitx::TextFormatFlag::Underline);
@@ -133,6 +138,7 @@ public:
 
     void clearPanel(fcitx::InputContext *ic) {
         ic->inputPanel().reset();
+        panelShown_ = false;
         ic->updatePreedit();
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     }
@@ -141,6 +147,7 @@ private:
     fcitx::Instance *instance_;
     bool ready_ = false;
     bool lastPrivate_ = false;
+    bool panelShown_ = false;
 };
 
 // 点选:全局拿引擎不方便,直接调 Rust 再让事件循环里的 sync 兜底——

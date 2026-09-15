@@ -39,6 +39,9 @@ pub struct Host {
     pub pending_commit: Option<String>,
     /// Shift 轻点检测:按下 Shift 后没夹别的键,松开才算「轻点」,切中英。
     shift_armed: bool,
+    /// 本轮查询里是否用方向键/翻页动过高亮。英文模式的空格只在动过之后才选高亮词,
+    /// 没动过就原样上屏(打词表里没有的英文词不被补全替换)——照 macOS 语义。
+    navigated: bool,
     /// 每页候选数(配置 1–9)。
     page_size: usize,
     last_flush: std::time::Instant,
@@ -105,6 +108,7 @@ impl Host {
             preedit_cursor: 0,
             pending_commit: None,
             shift_armed: false,
+            navigated: false,
             page_size,
             last_flush: std::time::Instant::now(),
             config_file: None,
