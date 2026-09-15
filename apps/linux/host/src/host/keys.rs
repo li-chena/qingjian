@@ -27,6 +27,23 @@ fn digit_offset(keyval: u32) -> Option<usize> {
     }
 }
 
+/// Shift 按着时数字键在 X 下出的是符号 keysym(美式布局 `!` `@` `#` …):映射回 0 起的页内序号。
+/// 只给修饰键快捷键(译词第二组、删候选缺省带 Shift)用,普通标点路径不受影响。
+fn shifted_digit_offset(keyval: u32) -> Option<usize> {
+    match keyval {
+        0x21 => Some(0), // !
+        0x40 => Some(1), // @
+        0x23 => Some(2), // #
+        0x24 => Some(3), // $
+        0x25 => Some(4), // %
+        0x5e => Some(5), // ^
+        0x26 => Some(6), // &
+        0x2a => Some(7), // *
+        0x28 => Some(8), // (
+        _ => None,
+    }
+}
+
 impl Host {
     /// 按键处理。返回 true = 吞掉。keyval 是 X keysym。
     pub fn key(&mut self, keyval: u32, state: u32, release: bool) -> bool {
@@ -50,23 +67,26 @@ impl Host {
         if !release {
             self.shift_armed = false;
         }
-        // 译词快捷键:组句中「修饰键+数字」把候选的译词直接上屏(缺省 Alt=第一个,Alt+Shift=第二个)。
+        // 修饰键+数字快捷键(只在组句中认):译词上屏(缺省 Alt=第一个,Alt+Shift=第二个)、删候选(缺省 Shift)。
         if !release
             && self.composing()
-            && let Some(offset) = digit_offset(keyval)
+            && let Some(offset) = digit_offset(keyval).or_else(|| shifted_digit_offset(keyval))
         {
             let pressed = state & (SHIFT | CTRL | ALT | SUPER);
-            let (first, second) = self.translation_mods;
-            let sense = if pressed != 0 && pressed == mods_mask(first) {
-                Some(0)
-            } else if pressed != 0 && pressed == mods_mask(second) {
-                Some(1)
-            } else {
-                None
-            };
-            if let Some(sense) = sense {
-                self.commit_translation_on_page(offset, sense);
-                return true;
+            if pressed != 0 {
+                let (first, second) = self.translation_mods;
+                if pressed == mods_mask(first) {
+                    self.commit_translation_on_page(offset, 0);
+                    return true;
+                }
+                if pressed == mods_mask(second) {
+                    self.commit_translation_on_page(offset, 1);
+                    return true;
+                }
+                if pressed == mods_mask(self.delete_mods) {
+                    self.forget_on_page(offset);
+                    return true;
+                }
             }
         }
         if state & CTRL_ALT_SUPER != 0 {
@@ -77,9 +97,21 @@ impl Host {
             return self.composing() && !(0xffe1..=0xffee).contains(&keyval);
         }
         let composing = self.composing();
+        // 英文直输段(缓冲区里已有 `-` 这类字符):可见字符一律追加,空格/回车整段原样上屏。
+        let raw = composing && self.engine.raw_mode();
         match keyval {
-            // a-z:进缓冲区。
+            // a-z:进缓冲区。英文候选关着时的英文模式是纯直通,字母不进缓冲区。
             0x61..=0x7a => {
+                if self.engine.english_mode() && !self.english_candidates && !composing {
+                    self.engine.note_passthrough(keyval as u8 as char);
+                    return false;
+                }
+                self.engine.push(keyval as u8 as char);
+                self.refresh();
+                true
+            }
+            // 直输段里的可见字符(数字、标点,翻页键字符也算):字面追加。
+            _ if raw && (0x21..=0x7e).contains(&keyval) => {
                 self.engine.push(keyval as u8 as char);
                 self.refresh();
                 true
@@ -95,7 +127,13 @@ impl Host {
             }
             // 空格:中文模式总是上屏高亮候选;英文模式只在动过高亮后才选,
             // 没动过就把敲的字母原样上屏(词表里没有的词不被补全替换)。
+            // 直输段整段原样上屏,空格本身也交给应用(`hello, world` 里的空格要在)。
             0x20 if composing => {
+                if raw {
+                    self.commit_index(self.highlighted);
+                    self.engine.note_passthrough(' ');
+                    return false;
+                }
                 if self.engine.english_mode() && !self.navigated {
                     self.commit_raw();
                 } else {
@@ -131,12 +169,26 @@ impl Host {
                 self.refresh();
                 true
             }
-            // 翻页:- / = 与 PageUp / PageDown(含小键盘)、方向键上下。
-            0x2d | 0xff55 | 0xff9a | 0xff52 | 0xff97 if composing => {
+            // 组句中敲 `-`:进入英文直输段(`no-way`),不当翻页键——翻页键见配置 `[general] page_keys`。
+            0x2d if composing => {
+                self.engine.push('-');
+                self.refresh();
+                true
+            }
+            // 翻页:配置的键对(缺省 `[` `]`)与 PageUp / PageDown(含小键盘)、方向键上下。
+            _ if composing && keyval == u32::from(self.page_keys.0) => {
                 self.turn_page(-1);
                 true
             }
-            0x3d | 0xff56 | 0xff9b | 0xff54 | 0xff99 if composing => {
+            _ if composing && keyval == u32::from(self.page_keys.1) => {
+                self.turn_page(1);
+                true
+            }
+            0xff55 | 0xff9a | 0xff52 | 0xff97 if composing => {
+                self.turn_page(-1);
+                true
+            }
+            0xff56 | 0xff9b | 0xff54 | 0xff99 if composing => {
                 self.turn_page(1);
                 true
             }
@@ -177,6 +229,11 @@ impl Host {
                     }
                 }
             }
+            // 修饰键本身(Ctrl / Alt / Super / CapsLock …)按下永远透传,应用要看修饰状态。
+            0xffe1..=0xffee => false,
+            // 组句期间剩下的编辑键(Tab / Home / F 键…)一律接管吞掉,
+            // 否则应用会动光标、丢焦点,组句跟着作废(macOS 同款口径)。
+            _ if composing => true,
             _ => false,
         }
     }

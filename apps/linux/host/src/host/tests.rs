@@ -3,8 +3,12 @@
 use super::*;
 
 fn sample_host() -> Host {
+    host_with(qingjian_platform::Config::default())
+}
+
+fn host_with(config: qingjian_platform::Config) -> Host {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/sample");
-    Host::init(dir, Some(qingjian_platform::Config::default())).expect("样例数据应能装配")
+    Host::init(dir, Some(config)).expect("样例数据应能装配")
 }
 
 fn type_str(h: &mut Host, s: &str) {
@@ -18,7 +22,7 @@ fn nihao_out_candidates_and_space_commits() {
     let mut h = sample_host();
     type_str(&mut h, "nihao");
     assert!(h.composing());
-    assert!(h.layout.len() > 0, "应有候选");
+    assert!(!h.layout.is_empty(), "应有候选");
     assert!(!h.preedit.is_empty(), "preedit 应显示拼音");
     assert!(h.key(0x20, 0, false), "空格应被吞掉");
     let committed = h.pending_commit.take().expect("应有上屏文本");
@@ -238,6 +242,193 @@ fn page_indicator_multi_page() {
     // 清空后无候选:无页码
     h.reset();
     assert_eq!(h.page_indicator(), "", "无候选时不显示页码");
+}
+
+#[test]
+fn default_page_keys_brackets_turn_pages() {
+    // 缺省翻页键是配置的 `[` `]`(DEFAULT_PAGE_KEYS),不是 - =。
+    let mut h = sample_host();
+    type_str(&mut h, "s");
+    assert!(h.page_count() > 1, "输入 s 应有多页候选");
+    assert!(h.key(0x5d, 0, false), "] 应被吞掉");
+    assert_eq!(h.page, 1, "] 应翻到下一页");
+    assert!(h.pending_commit.is_none(), "翻页不应上屏任何东西");
+    assert!(h.key(0x5b, 0, false), "[ 应被吞掉");
+    assert_eq!(h.page, 0, "[ 应翻回上一页");
+    assert!(h.composing());
+}
+
+#[test]
+fn page_keys_config_comma_period() {
+    // 配置 page_keys = ",." 后,逗号句号翻页而不再当标点。
+    let mut config = qingjian_platform::Config::default();
+    config.general.page_keys = ",.".to_owned();
+    let mut h = host_with(config);
+    type_str(&mut h, "s");
+    assert!(h.page_count() > 1);
+    assert!(h.key(0x2e, 0, false), ". 应被吞掉");
+    assert_eq!(h.page, 1, ". 应翻到下一页");
+    assert!(h.pending_commit.is_none());
+    assert!(h.key(0x2c, 0, false), ", 应被吞掉");
+    assert_eq!(h.page, 0, ", 应翻回上一页");
+}
+
+#[test]
+fn hyphen_enters_raw_segment_space_commits() {
+    // 组句中敲 `-`:进英文直输段(no-way),空格整段原样上屏、空格本身交给应用。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x2d, 0, false), "- 应被吞掉(进缓冲区)");
+    assert!(h.composing());
+    assert!(h.engine.raw_mode(), "- 之后应是英文直输段");
+    type_str(&mut h, "hao");
+    assert!(
+        !h.key(0x20, 0, false),
+        "直输段的空格应透传(hello, world 的空格要在)"
+    );
+    assert_eq!(h.pending_commit.take().unwrap(), "ni-hao");
+    assert!(!h.composing());
+}
+
+#[test]
+fn raw_segment_takes_page_keys_and_punctuation() {
+    // 直输段里可见字符一律追加:翻页键字符、标点都是字面。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x2d, 0, false));
+    assert!(h.key(0x5b, 0, false), "直输段里 [ 应进缓冲区而非翻页");
+    assert!(h.key(0x2c, 0, false), "直输段里 , 应进缓冲区而非转全角");
+    assert!(h.composing());
+    assert!(h.pending_commit.is_none(), "追加过程不应上屏");
+    assert!(h.key(0xff0d, 0, false), "回车整段原样上屏");
+    assert_eq!(h.pending_commit.take().unwrap(), "ni-[,");
+}
+
+#[test]
+fn full_width_punctuation_off_passes_half_width() {
+    // 配置关掉全角标点:空闲时敲逗号不再转全角,原样透传。
+    let mut config = qingjian_platform::Config::default();
+    config.general.full_width_punctuation = false;
+    let mut h = host_with(config);
+    assert!(!h.key(0x2c, 0, false), "全角标点关掉后逗号应透传");
+    assert!(h.pending_commit.is_none());
+}
+
+#[test]
+fn custom_phrases_config_applies() {
+    // 自定义短语:敲输入码,固定位置出短语。
+    let config = qingjian_platform::Config {
+        custom_phrases: vec![qingjian_core::CustomPhrase {
+            code: "addr".to_owned(),
+            text: "青简大道 1 号".to_owned(),
+            position: 1,
+            enabled: true,
+        }],
+        ..Default::default()
+    };
+    let mut h = host_with(config);
+    type_str(&mut h, "addr");
+    let first = h.layout.candidate(0).map(|c| c.text.clone());
+    assert_eq!(
+        first.as_deref(),
+        Some("青简大道 1 号"),
+        "自定义短语应出现在第 1 格"
+    );
+}
+
+#[test]
+fn shuangpin_config_applies() {
+    // 双拼(小鹤):u=sh、i=i,敲 ui 应出「是」;全拼下 ui 不该出。
+    let mut config = qingjian_platform::Config::default();
+    config.general.shuangpin = "xiaohe".to_owned();
+    let mut h = host_with(config);
+    type_str(&mut h, "ui");
+    let has_shi = (0..h.layout.len())
+        .filter_map(|i| h.layout.candidate(i))
+        .any(|c| c.text == "是");
+    assert!(has_shi, "小鹤双拼下 ui 应出「是」");
+}
+
+#[test]
+fn delete_shortcut_swallowed_while_composing() {
+    // 删词键(缺省 Shift+数字):X 布局下 Shift+1 的 keysym 是 `!`,须映射回数字位。
+    // 组句中按下:吞掉、不上屏、仍在组句(词库词没什么可删,但键不能漏给应用)。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x21, 1, false), "组句中 Shift+1(!)应被删词键吞掉");
+    assert!(h.pending_commit.is_none(), "删词不应上屏任何东西");
+    assert!(h.composing(), "删词后仍在组句");
+    h.key(0xff1b, 0, false);
+    // 不组句时 Shift+1 还是标点:照走全角转换。
+    assert!(h.key(0x21, 1, false), "空闲时 ! 应转全角并吞掉");
+    assert_eq!(h.pending_commit.take().unwrap(), "\u{ff01}");
+}
+
+#[test]
+fn alt_shift_digit_reaches_second_sense() {
+    // 译词第二组(缺省 Alt+Shift+数字):X 布局下 keysym 是符号,也得映射回数字位。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    let alt_shift = (1 << 0) | (1 << 3);
+    assert!(
+        h.key(0x21, alt_shift, false),
+        "组句中 Alt+Shift+1(!)应被译词键吞掉"
+    );
+    assert!(h.composing() || h.pending_commit.is_some());
+}
+
+#[test]
+fn composing_swallows_unknown_editing_keys() {
+    // 组句期间所有编辑动作都由我们接管;不认识的一律吞掉(macOS 同款),按下与松开对称。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0xff09, 0, false), "组句中 Tab 按下应被吞掉");
+    assert!(h.key(0xff09, 0, true), "组句中 Tab 松开应被吞掉");
+    assert!(h.key(0xff50, 0, false), "组句中 Home 应被吞掉");
+    assert!(h.key(0xffbe, 0, false), "组句中 F1 应被吞掉");
+    assert!(h.composing(), "吞掉之后组句不受影响");
+    assert!(!h.key(0xffe3, 0, false), "Ctrl 修饰键本身按下应透传");
+    h.key(0xff1b, 0, false);
+    assert!(!h.key(0xff09, 0, false), "空闲时 Tab 应透传");
+}
+
+#[test]
+fn english_candidates_off_is_pure_passthrough() {
+    // [general] english_candidates = false:英文模式纯直通,字母不进缓冲区。
+    let mut config = qingjian_platform::Config::default();
+    config.general.english_candidates = false;
+    let mut h = host_with(config);
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode(), "轻点仍切到英文模式");
+    assert!(!h.key(0x6b, 0, false), "英文候选关着:字母应透传");
+    assert!(!h.composing(), "纯直通不组句");
+    assert!(h.pending_commit.is_none());
+}
+
+#[test]
+fn config_hot_reload_applies_new_fields() {
+    // 热加载也要覆盖新接的字段:翻页键与全角标点开关。
+    let dir = std::env::temp_dir().join(format!("qj-test-fields-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cfg = dir.join("config.toml");
+    std::fs::write(&cfg, "[general]\n").unwrap();
+    let mut h = sample_host();
+    h.watch_config(cfg.clone());
+    std::fs::write(
+        &cfg,
+        "[general]\npage_keys = \",.\"\nfull_width_punctuation = false\n",
+    )
+    .unwrap();
+    h.config_mtime = None;
+    h.last_config_check = std::time::Instant::now() - CONFIG_CHECK_INTERVAL;
+    type_str(&mut h, "s");
+    assert!(h.page_count() > 1);
+    assert!(h.key(0x2e, 0, false), "热加载后 . 应翻页");
+    assert_eq!(h.page, 1);
+    h.key(0xff1b, 0, false);
+    assert!(!h.key(0x2c, 0, false), "热加载后空闲逗号应透传(全角已关)");
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

@@ -140,15 +140,38 @@ impl Host {
         let _ = &self.data_dir; // user.tsv 路径在 learner 里;flush 由 Engine 统一发。
         self.engine.flush_learning();
     }
-    /// 上屏当前页第 `offset` 格的第 `sense` 个译词(译词快捷键)。译词缺位就什么都不做。
+    /// 上屏当前页第 `offset` 格的第 `sense` 个译词(译词快捷键)。
+    /// 译词缺位就什么都不做,键仍被吞掉(组句中漏给应用会打乱光标,macOS 同款口径)。
     pub(super) fn commit_translation_on_page(&mut self, offset: usize, sense: usize) {
         let index = self.page * self.layout.page_size() + offset;
         let Some(candidate) = self.layout.candidate(index).cloned() else {
+            tracing::debug!(offset, "这一格没有候选,没有译词可上屏");
             return;
         };
-        if let Some(text) = self.engine.commit_translation(&candidate, sense) {
-            self.push_commit(text);
-            self.refresh();
+        match self.engine.commit_translation(&candidate, sense) {
+            Some(text) => {
+                self.push_commit(text);
+                self.refresh();
+            }
+            None => tracing::debug!(offset, sense, "这个候选没有这条译文"),
         }
+    }
+
+    /// 删掉当前页第 `offset` 格候选的用户词/学习记录(删候选快捷键)。
+    /// 那格没有候选就什么都不做;删完重新查一遍(排序会变)。
+    pub(super) fn forget_on_page(&mut self, offset: usize) {
+        let index = self.page * self.layout.page_size() + offset;
+        let Some(candidate) = self.layout.candidate(index).cloned() else {
+            tracing::debug!(offset, "这一格没有候选,没什么可删");
+            return;
+        };
+        let forgotten = self.engine.forget(&candidate);
+        tracing::info!(
+            text = %candidate.text,
+            user_word = forgotten.user_word,
+            learning = forgotten.learning,
+            "删候选"
+        );
+        self.refresh();
     }
 }

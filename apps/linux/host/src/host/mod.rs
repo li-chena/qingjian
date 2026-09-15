@@ -53,6 +53,12 @@ pub struct Host {
     learning_language: Option<Language>,
     /// 译词快捷键的两组修饰键(数字键配它:上屏第一/第二个译词)。
     translation_mods: (Modifiers, Modifiers),
+    /// 删候选快捷键的修饰键组合(数字键配它,缺省 Shift)。
+    delete_mods: Modifiers,
+    /// 翻页键对(配置 `[general] page_keys`,缺省 `[` `]`)。
+    page_keys: (char, char),
+    /// 英文模式给不给候选(配置 `[general] english_candidates`);关掉就是纯直通。
+    english_candidates: bool,
     data_dir: PathBuf,
 }
 
@@ -82,7 +88,6 @@ impl Host {
                 None
             }
         };
-        engine.set_fuzzy(config.fuzzy);
         let learner = FrequencyLearner::from_path(dir.join("user.tsv")).unwrap_or_default();
         engine = engine.with_learner(Box::new(learner));
         // 英文模式的词表与英→中释义,都可选缺:缺了英文模式只是没候选。
@@ -98,8 +103,8 @@ impl Host {
                 Err(error) => tracing::warn!(%error, "英→中释义表加载失败"),
             }
         }
-        let page_size = config.general.page_size.clamp(1, 9);
-        Ok(Host {
+        let page_size = config.general.page_size();
+        let mut host = Host {
             engine,
             layout: CandidateLayout::new(Vec::new(), page_size, CLOUD_SLOTS),
             highlighted: 0,
@@ -116,7 +121,12 @@ impl Host {
             last_config_check: std::time::Instant::now(),
             learning_language,
             translation_mods: config.shortcut.translation_keys(),
+            delete_mods: config.shortcut.delete_keys(),
+            page_keys: config.general.page_keys(),
+            english_candidates: config.general.english_candidates,
             data_dir: dir,
-        })
+        };
+        host.apply_config(&config);
+        Ok(host)
     }
 }
