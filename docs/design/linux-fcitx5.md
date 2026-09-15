@@ -12,7 +12,7 @@
 | 进程模型 | Core 与壳同进程(fcitx5 插件即进程内动态库) | 甲方拍「复刻 macOS」;architecture.md 明写 macOS/Linux 同进程 |
 | 壳形态 | 薄 C++ shim + Rust staticlib,C ABI 边界 | crates.io 无维护中的 fcitx5 引擎绑定(2026-09-15 查,仅 fcitx5-dbus 控制客户端);fcitx5 插件必须实现 C++ 虚类;上游 architecture.md 预判「Fcitx5 需要 C++ shim」 |
 | 候选窗 UI | **自绘,复刻青简候选窗观感**;开发期先用 fcitx5 面板当脚手架打通输入,UI 单列一个阶段替换 | 甲方 2026-09-15 拍「UI 我想要 qingjian 的 UI」,推翻本稿初版「交框架」条 |
-| 自绘的实现通道 | 做成 fcitx5 的 UI 插件(Category=UI,即 classicui 坐的位置),像素自己画(照搬 macOS candidates/ 的 theme/row/frame 结构),窗口定位交合成器的输入法弹窗通道 | 甲方会话 = Wayland + niri(2026-09-15 查 fcitx5 进程环境):Wayland 协议下外部窗口拿不到光标全局坐标,自定位无路;UI 插件是 fcitx5 官方缝,classicui 即样板 |
+| 自绘的实现通道 | **修正(2026-09-15 侦察后)**:第一版走「classicui + 青简主题」——本机 classicui 支持 `CommentTextSizeFactor`/`CandidateCommentColor` 等键(strings libclassicui.so 实证),译文小字号+浅色的视觉层级主题就能复刻;光标定位继续由 classicui 的 `zwp_input_popup_surface_v2` 托管(niri 26.04 支持,rime 定位正常是活证)。整窗自绘降级为后备:定位弹窗 API(waylandim 私有)树外插件够不着,真要自绘需 vendor fcitx5 私有头,代价大——主题版观感经甲方过目后不达标的部分,才是自绘要买的东西 | 甲方会话 = Wayland + niri:Wayland 下外部窗口拿不到光标全局坐标,合成器托管的弹窗是唯一正道;公共 API 侦察 = /usr/include/Fcitx5/Module 无 waylandim 头 |
 | 状态区/设置 UI | 交框架;设置首版直接编辑 TOML 配置文件(host 层配置热加载照搬) | 甲方拍的是候选窗 UI;状态区无青简观感诉求 |
 | 上游同步 | merge upstream/main、跟 tag 不追 commit;除接缝文件外不改上游文件,通用改动回馈上游 PR | 与甲方 2026-09-15 对话研判,详见下「上游同步」 |
 
