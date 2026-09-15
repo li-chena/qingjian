@@ -19,6 +19,8 @@ install -Dm644 "$repo/assets/lexicon/dict.tsv" "$qdata/dict.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-en.tsv" "$qdata/glossary-en.tsv"
 install -Dm644 "$repo/assets/lexicon/english.tsv" "$qdata/english.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-zh.tsv" "$qdata/glossary-zh.tsv"
+install -Dm644 "$repo/assets/glossary/glossary-ja.tsv" "$qdata/glossary-ja.tsv"
+install -Dm644 "$repo/assets/glossary/glossary-es.tsv" "$qdata/glossary-es.tsv"
 
 # 青简候选窗主题(亮/暗两套)+ classicui 配置:竖排、青简主题、跟随系统明暗。
 theme_dir="$data_dir/themes"

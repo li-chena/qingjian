@@ -49,7 +49,7 @@ pub extern "C" fn qj_init() -> bool {
     let Some(dir) = host::data_dir() else {
         return set_init_error("HOME/XDG_DATA_HOME 都不在,找不到数据目录".to_owned());
     };
-    match Host::init(dir) {
+    match Host::init(dir, None) {
         Ok(host) => {
             HOST.with(|slot| *slot.borrow_mut() = Some(host));
             true

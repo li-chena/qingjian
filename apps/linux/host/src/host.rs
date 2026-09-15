@@ -6,11 +6,13 @@ use std::path::{Path, PathBuf};
 use qingjian_core::{CandidateLayout, Engine, Language};
 use qingjian_dictionary::{Dictionary, WordList};
 use qingjian_learning::FrequencyLearner;
+use qingjian_platform::Config;
 use qingjian_translate::Glossary;
 
-/// 每页候选数与云端词占位数:先取 macOS 的缺省(9 格、不留云端位)。
-const PAGE_SIZE: usize = 9;
+/// 云端词占位数:Linux 首版无云联想,不留位。
 const CLOUD_SLOTS: usize = 0;
+/// 学习数据落盘的最小间隔(上屏路径上顺带检查,焦点切换仍即时落)。
+const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub struct Host {
     pub engine: Engine,
@@ -25,7 +27,22 @@ pub struct Host {
     pub pending_commit: Option<String>,
     /// Shift 轻点检测:按下 Shift 后没夹别的键,松开才算「轻点」,切中英。
     shift_armed: bool,
+    /// 每页候选数(配置 1–9)。
+    page_size: usize,
+    last_flush: std::time::Instant,
     data_dir: PathBuf,
+}
+
+/// 配置文件:$XDG_CONFIG_HOME/qingjian/config.toml,缺省 ~/.config/qingjian/config.toml。
+pub fn config_path() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir).join("qingjian/config.toml"));
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|home| PathBuf::from(home).join(".config/qingjian/config.toml"))
 }
 
 /// 数据目录:$XDG_DATA_HOME/qingjian,缺省 ~/.local/share/qingjian。
@@ -53,19 +70,40 @@ fn find_data(dir: &Path, stem: &str) -> Option<PathBuf> {
 
 impl Host {
     /// 装配引擎:词库必备,释义表与学习数据可选缺。
-    pub fn init(dir: PathBuf) -> Result<Self, String> {
+    /// `config` 传 None = 从标准路径读(测试传 Some 以隔离环境)。
+    pub fn init(dir: PathBuf, config: Option<Config>) -> Result<Self, String> {
+        let config = config.unwrap_or_else(|| match config_path() {
+            Some(path) => Config::load(&path).unwrap_or_else(|error| {
+                // 配置笔误不能让输入法起不来:报日志、按默认跑,用户修好重启即生效。
+                tracing::error!(%error, "配置解析失败,本次按默认配置");
+                Config::default()
+            }),
+            None => Config::default(),
+        });
         let dict_path =
             find_data(&dir, "dict").ok_or_else(|| format!("{} 下没有 dict.qj/dict.tsv", dir.display()))?;
         let dictionary = Dictionary::from_path(&dict_path).map_err(|e| format!("词库加载失败:{e}"))?;
         let mut engine = Engine::new(dictionary);
-        // 释义表:先只装英语;多语言跟随配置文件在后续刀接入。
-        match find_data(&dir, "glossary-en") {
-            Some(path) => match Glossary::from_path(Language::English, &path) {
-                Ok(glossary) => engine = engine.with_translator(Box::new(glossary)),
-                Err(error) => tracing::warn!(%error, "释义表加载失败,候选无译文"),
-            },
+        // 释义表按配置的学习语言挑,没有对应文件依次退回英语、任一存在的。
+        let configured = config.general.learning_language.parse::<Language>().ok();
+        let language = [configured, Some(Language::English)]
+            .into_iter()
+            .flatten()
+            .find(|l| find_data(&dir, &format!("glossary-{}", l.code())).is_some());
+        match language {
+            Some(language) => {
+                let path = find_data(&dir, &format!("glossary-{}", language.code())).expect("刚探测过");
+                match Glossary::from_path(language, &path) {
+                    Ok(glossary) => {
+                        tracing::info!(language = language.code(), glosses = glossary.len(), "释义表已加载");
+                        engine = engine.with_translator(Box::new(glossary));
+                    }
+                    Err(error) => tracing::warn!(%error, "释义表加载失败,候选无译文"),
+                }
+            }
             None => tracing::info!("无释义表,候选无译文"),
         }
+        engine.set_fuzzy(config.fuzzy.clone());
         let learner = match FrequencyLearner::from_path(&dir.join("user.tsv")) {
             Ok(learner) => learner,
             Err(_) => FrequencyLearner::default(),
@@ -84,15 +122,18 @@ impl Host {
                 Err(error) => tracing::warn!(%error, "英→中释义表加载失败"),
             }
         }
+        let page_size = config.general.page_size.clamp(1, 9);
         Ok(Host {
             engine,
-            layout: CandidateLayout::new(Vec::new(), PAGE_SIZE, CLOUD_SLOTS),
+            layout: CandidateLayout::new(Vec::new(), page_size, CLOUD_SLOTS),
             highlighted: 0,
             page: 0,
             preedit: String::new(),
             preedit_cursor: 0,
             pending_commit: None,
             shift_armed: false,
+            page_size,
+            last_flush: std::time::Instant::now(),
             data_dir: dir,
         })
     }
@@ -113,7 +154,7 @@ impl Host {
                 self.preedit = query.marked_text();
                 self.preedit_cursor = query.marked_cursor();
                 self.layout =
-                    CandidateLayout::new(query.candidates.items, PAGE_SIZE, CLOUD_SLOTS);
+                    CandidateLayout::new(query.candidates.items, self.page_size, CLOUD_SLOTS);
                 self.highlighted = (0..self.layout.len())
                     .find(|&i| self.layout.candidate(i).is_some())
                     .unwrap_or(0);
@@ -124,7 +165,7 @@ impl Host {
                 tracing::debug!(%error, "查询失败");
                 self.preedit = self.engine.composition().text().to_owned();
                 self.preedit_cursor = self.preedit.len();
-                self.layout = CandidateLayout::new(Vec::new(), PAGE_SIZE, CLOUD_SLOTS);
+                self.layout = CandidateLayout::new(Vec::new(), self.page_size, CLOUD_SLOTS);
                 self.highlighted = 0;
                 self.page = 0;
             }
@@ -132,7 +173,7 @@ impl Host {
     }
 
     fn clear_view(&mut self) {
-        self.layout = CandidateLayout::new(Vec::new(), PAGE_SIZE, CLOUD_SLOTS);
+        self.layout = CandidateLayout::new(Vec::new(), self.page_size, CLOUD_SLOTS);
         self.highlighted = 0;
         self.page = 0;
         self.preedit.clear();
@@ -163,6 +204,11 @@ impl Host {
         match &mut self.pending_commit {
             Some(pending) => pending.push_str(&text),
             None => self.pending_commit = Some(text),
+        }
+        // 学习数据周期落盘:焦点切换即时落之外的兜底,防长会话崩溃丢学习。
+        if self.last_flush.elapsed() >= FLUSH_INTERVAL {
+            self.engine.flush_learning();
+            self.last_flush = std::time::Instant::now();
         }
     }
 
@@ -341,7 +387,7 @@ mod tests {
 
     fn sample_host() -> Host {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/sample");
-        Host::init(dir).expect("样例数据应能装配")
+        Host::init(dir, Some(qingjian_platform::Config::default())).expect("样例数据应能装配")
     }
 
     fn type_str(h: &mut Host, s: &str) {
