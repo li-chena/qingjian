@@ -27,21 +27,36 @@ fn digit_offset(keyval: u32) -> Option<usize> {
     }
 }
 
+/// 数字键 1-9 被 Shift 按着时出的符号 keysym(美式布局,下标即 0 起的页内序号)。
+const SHIFTED_DIGITS: [u32; 9] = [
+    0x21, // !
+    0x40, // @
+    0x23, // #
+    0x24, // $
+    0x25, // %
+    0x5e, // ^
+    0x26, // &
+    0x2a, // *
+    0x28, // (
+];
+
 /// Shift 按着时数字键在 X 下出的是符号 keysym(美式布局 `!` `@` `#` …):映射回 0 起的页内序号。
 /// 只给修饰键快捷键(译词第二组、删候选缺省带 Shift)用,普通标点路径不受影响。
 fn shifted_digit_offset(keyval: u32) -> Option<usize> {
-    match keyval {
-        0x21 => Some(0), // !
-        0x40 => Some(1), // @
-        0x23 => Some(2), // #
-        0x24 => Some(3), // $
-        0x25 => Some(4), // %
-        0x5e => Some(5), // ^
-        0x26 => Some(6), // &
-        0x2a => Some(7), // *
-        0x28 => Some(8), // (
-        _ => None,
+    SHIFTED_DIGITS.iter().position(|&s| s == keyval)
+}
+
+/// 同一个物理数字键的「另一个」keysym:keysym 由事件当时的修饰状态决定,Shift+1 按下到达 `!`、
+/// 先松 Shift 再松键则松键到达 `1`。松键记账要认这对变体,否则漏无头 keyup 还留陈账(巡检三 R3-4)。
+/// 根治是 shim 传 keycode,见 docs/design/linux-fcitx5.md。
+fn shift_counterpart(keyval: u32) -> Option<u32> {
+    if let Some(offset) = shifted_digit_offset(keyval) {
+        return Some(0x31 + offset as u32);
     }
+    if (0x31..=0x39).contains(&keyval) {
+        return Some(SHIFTED_DIGITS[(keyval - 0x31) as usize]);
+    }
+    None
 }
 
 impl Host {
@@ -63,11 +78,17 @@ impl Host {
             }
             return false; // 修饰键本身永远透传,应用要看 Shift 状态
         }
+        // 记账认「本 keysym 或它的 Shift 变体」:同一物理键按下与松开的 keysym 可能不同。
+        let twin = shift_counterpart(keyval);
         if release {
             // 松键与按下对称:按下被吞的键松键也吞,按下透传的松键照样透传。
             // 只看「按下时吞过没有」,不看当前组句状态——上屏类的键(空格/回车/数字/Esc)
             // 按下就结束了组句,按组句状态判会把它们的松键漏给应用(无头 keyup)。
-            if let Some(i) = self.swallowed_presses.iter().position(|&k| k == keyval) {
+            if let Some(i) = self
+                .swallowed_presses
+                .iter()
+                .position(|&k| k == keyval || Some(k) == twin)
+            {
                 self.swallowed_presses.swap_remove(i);
                 return true;
             }
@@ -80,8 +101,9 @@ impl Host {
                 self.swallowed_presses.push(keyval);
             }
         } else {
-            // 这次按下透传了:同 keysym 的陈账(切焦点后没等到松键的)一并清掉,免得吞错以后的松键。
-            self.swallowed_presses.retain(|&k| k != keyval);
+            // 这次按下透传了:同物理键的陈账(切焦点后没等到松键的)一并清掉,免得吞错以后的松键。
+            self.swallowed_presses
+                .retain(|&k| k != keyval && Some(k) != twin);
         }
         swallow
     }

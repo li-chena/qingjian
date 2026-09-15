@@ -898,3 +898,38 @@ fn dist_layer_alone_assembles_host() {
     type_str(&mut h, "ni");
     assert!(!h.layout.is_empty(), "dist 层词库应出候选");
 }
+
+#[test]
+fn shifted_digit_release_swallowed_across_keysym_drift() {
+    // 删候选快捷键(缺省 Shift+数字)按下到达的是符号 keysym(!),先松 Shift 再松键时
+    // 松键到达的是数字 keysym(1):同一物理键的两个 keysym 记账要互认(巡检三 R3-4)。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x21, 1 << 0, false), "Shift+1(!)按下应被删候选键吞");
+    assert!(
+        h.key(0x31, 0, true),
+        "先松 Shift 后的数字松键(keysym=1)也应被吞"
+    );
+    assert!(!h.key(0x31, 0, true), "账已消,再来的孤松键透传");
+    assert!(!h.key(0x21, 0, true), "符号侧也不留陈账");
+    // 反向:Shift 一直按着,松键仍是符号 keysym,同样命中。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x21, 1 << 0, false));
+    assert!(
+        h.key(0x21, 1 << 0, true),
+        "Shift 未松时符号 keysym 松键命中本账"
+    );
+    // 陈账清理也认变体:! 的账挂着(松键丢失),之后数字 1 的按下透传时应连带清掉。
+    let mut h = sample_host();
+    type_str(&mut h, "ni");
+    assert!(h.key(0x21, 1 << 0, false), "挂一笔 ! 的账");
+    h.key(0xff1b, 0, false); // Esc 清组句(其账随即被消:此处只关心 ! 的)
+    h.key(0xff1b, 0, true);
+    assert!(!h.key(0x31, 0, false), "空闲数字按下透传(半角规则)");
+    assert!(
+        !h.key(0x31, 0, true),
+        "透传按下连带清掉 ! 陈账,松键不被误吞"
+    );
+    assert!(!h.key(0x21, 0, true), "! 的陈账确实没了");
+}
