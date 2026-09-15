@@ -50,13 +50,22 @@ public:
         if (!ready_) {
             return;
         }
+        // 密码框/敏感输入:与 macOS Secure Input 同语义,学习与日志静音。
+        const bool isPrivate = event.inputContext()->capabilityFlags().testAny(
+            fcitx::CapabilityFlags{fcitx::CapabilityFlag::Password,
+                                   fcitx::CapabilityFlag::Sensitive});
+        if (isPrivate != lastPrivate_) {
+            qj_set_private(isPrivate);
+            lastPrivate_ = isPrivate;
+        }
         const bool consumed =
             qj_key_event(event.rawKey().sym(), event.rawKey().states(),
                          event.isRelease());
-        if (!consumed) {
-            return;
+        if (consumed) {
+            event.filterAndAccept();
         }
-        event.filterAndAccept();
+        // 未吞掉的键也要同步:比如「组句中敲半角标点」= 候选先上屏、字符再透传,
+        // 上屏文本必须赶在放行的按键之前发给应用。
         sync(event.inputContext());
     }
 
@@ -123,6 +132,7 @@ public:
 private:
     fcitx::Instance *instance_;
     bool ready_ = false;
+    bool lastPrivate_ = false;
 };
 
 // 点选:全局拿引擎不方便,直接调 Rust 再让事件循环里的 sync 兜底——

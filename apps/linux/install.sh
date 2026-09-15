@@ -17,6 +17,8 @@ install -Dm644 "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$d
 qdata="${XDG_DATA_HOME:-$HOME/.local/share}/qingjian"
 install -Dm644 "$repo/assets/lexicon/dict.tsv" "$qdata/dict.tsv"
 install -Dm644 "$repo/assets/glossary/glossary-en.tsv" "$qdata/glossary-en.tsv"
+install -Dm644 "$repo/assets/lexicon/english.tsv" "$qdata/english.tsv"
+install -Dm644 "$repo/assets/glossary/glossary-zh.tsv" "$qdata/glossary-zh.tsv"
 
 # .so 的搜索路径要靠 FCITX_ADDON_DIRS(conf 文件用户目录原生支持,不用它)。
 # 写进 environment.d 供下次登录;本次立即生效靠下面带环境变量重启。

@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use qingjian_core::{CandidateLayout, Engine, Language};
-use qingjian_dictionary::Dictionary;
+use qingjian_dictionary::{Dictionary, WordList};
 use qingjian_learning::FrequencyLearner;
 use qingjian_translate::Glossary;
 
@@ -23,6 +23,8 @@ pub struct Host {
     pub preedit_cursor: usize,
     /// 待上屏文本:按键处理里攒,shim 每个事件后取走。
     pub pending_commit: Option<String>,
+    /// Shift 轻点检测:按下 Shift 后没夹别的键,松开才算「轻点」,切中英。
+    shift_armed: bool,
     data_dir: PathBuf,
 }
 
@@ -69,6 +71,19 @@ impl Host {
             Err(_) => FrequencyLearner::default(),
         };
         engine = engine.with_learner(Box::new(learner));
+        // 英文模式的词表与英→中释义,都可选缺:缺了英文模式只是没候选。
+        if let Some(path) = find_data(&dir, "english") {
+            match WordList::from_path(&path) {
+                Ok(words) => engine = engine.with_english(words),
+                Err(error) => tracing::warn!(%error, "英文词表加载失败"),
+            }
+        }
+        if let Some(path) = find_data(&dir, "glossary-zh") {
+            match Glossary::from_path(Language::Chinese, &path) {
+                Ok(glossary) => engine = engine.with_english_translator(Box::new(glossary)),
+                Err(error) => tracing::warn!(%error, "英→中释义表加载失败"),
+            }
+        }
         Ok(Host {
             engine,
             layout: CandidateLayout::new(Vec::new(), PAGE_SIZE, CLOUD_SLOTS),
@@ -77,6 +92,7 @@ impl Host {
             preedit: String::new(),
             preedit_cursor: 0,
             pending_commit: None,
+            shift_armed: false,
             data_dir: dir,
         })
     }
@@ -183,12 +199,30 @@ impl Host {
     /// 按键处理。返回 true = 吞掉。keyval 是 X keysym。
     pub fn key(&mut self, keyval: u32, state: u32, release: bool) -> bool {
         const CTRL_ALT_SUPER: u32 = (1 << 2) | (1 << 3) | (1 << 6);
+        const SHIFT_KEYS: std::ops::RangeInclusive<u32> = 0xffe1..=0xffe2;
+        // Shift 轻点切中英:按下预备,中间没夹别的键、松开时兑现(macOS 同款手感)。
+        if SHIFT_KEYS.contains(&keyval) {
+            if release {
+                if self.shift_armed {
+                    self.shift_armed = false;
+                    let on = !self.engine.english_mode();
+                    self.engine.set_english_mode(on);
+                    self.refresh();
+                }
+            } else {
+                self.shift_armed = true;
+            }
+            return false; // 修饰键本身永远透传,应用要看 Shift 状态
+        }
+        if !release {
+            self.shift_armed = false;
+        }
         if state & CTRL_ALT_SUPER != 0 {
             return false;
         }
         if release {
-            // 组句期间吞掉松键,免得应用收到无头的 release。
-            return self.composing();
+            // 组句期间吞掉普通键的松键,免得应用收到无头的 release;修饰键已在上面放行。
+            return self.composing() && !(0xffe1..=0xffee).contains(&keyval);
         }
         let composing = self.composing();
         match keyval {
@@ -247,10 +281,41 @@ impl Host {
                 self.move_highlight(1);
                 true
             }
-            // 组句中的其他可打印键:先吞掉不处理(标点等后续刀接)。
-            0x21..=0x7e if composing => true,
+            // Shift 按住打的大写字母:临时打英文——拼音原样上屏,字母本身透传给应用。
+            0x41..=0x5a => {
+                if composing {
+                    self.commit_raw();
+                }
+                self.engine.note_passthrough(keyval as u8 as char);
+                false
+            }
+            // 其余可打印键 = 标点/符号:组句中先上屏高亮候选,然后转全角;
+            // 转不了的(半角规则如数字后的点)原样透传。空闲时同一条路。
+            0x21..=0x7e => {
+                if composing {
+                    self.commit_index(self.highlighted);
+                }
+                let c = keyval as u8 as char;
+                match self.engine.punctuate(c) {
+                    Some(full_width) => {
+                        self.push_commit(full_width.to_owned());
+                        true
+                    }
+                    None => {
+                        // 透传:字符本身不吞。若组句中已上屏候选,顺序由 shim 保证——
+                        // 它对未吞掉的键也先取走 pending_commit 发出去,再放行按键。
+                        self.engine.note_passthrough(c);
+                        false
+                    }
+                }
+            }
             _ => false,
         }
+    }
+
+    /// 私密输入(密码框):学习与输入日志静音,排序不变。
+    pub fn set_private(&mut self, private: bool) {
+        self.engine.set_private(private);
     }
 
     /// 上屏当前页第 `offset` 格(鼠标点选走这里)。
@@ -346,5 +411,55 @@ mod tests {
         assert!(h.key(0xff0d, 0, false));
         assert_eq!(h.pending_commit.take().unwrap(), "nihao");
         assert!(!h.composing());
+    }
+
+    #[test]
+    fn punctuation_idle_full_width() {
+        let mut h = sample_host();
+        assert!(h.key(0x2c, 0, false), "逗号应转全角并吞掉");
+        assert_eq!(h.pending_commit.take().unwrap(), "\u{ff0c}");
+    }
+
+    #[test]
+    fn punctuation_while_composing_commits_then_converts() {
+        let mut h = sample_host();
+        type_str(&mut h, "ni");
+        let top = h.layout.candidate(h.highlighted).unwrap().text.clone();
+        assert!(h.key(0x2c, 0, false));
+        assert_eq!(h.pending_commit.take().unwrap(), format!("{top}\u{ff0c}"));
+        assert!(!h.composing());
+    }
+
+    #[test]
+    fn shift_tap_toggles_english_mode() {
+        let mut h = sample_host();
+        assert!(!h.engine.english_mode());
+        assert!(!h.key(0xffe1, 0, false), "Shift 按下透传");
+        assert!(!h.key(0xffe1, 1, true), "Shift 松开透传");
+        assert!(h.engine.english_mode(), "轻点应切到英文模式");
+        // 夹了别的键就不算轻点
+        assert!(!h.key(0xffe1, 0, false));
+        h.key(0x61, 1, false);
+        assert!(!h.key(0xffe1, 1, true));
+        assert!(h.engine.english_mode(), "夹键后松开不应再切换");
+    }
+
+    #[test]
+    fn shifted_letter_flushes_raw_and_passes() {
+        let mut h = sample_host();
+        type_str(&mut h, "ni");
+        assert!(!h.key(0x4e, 1, false), "大写 N 应透传");
+        assert_eq!(h.pending_commit.take().unwrap(), "ni", "拼音应原样上屏");
+        assert!(!h.composing());
+    }
+
+    #[test]
+    fn private_mode_smoke() {
+        let mut h = sample_host();
+        h.set_private(true);
+        type_str(&mut h, "nihao");
+        assert!(h.key(0x20, 0, false));
+        assert!(h.pending_commit.take().is_some(), "私密模式照常上屏,只是不学习");
+        h.set_private(false);
     }
 }

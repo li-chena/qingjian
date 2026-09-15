@@ -28,6 +28,7 @@ const char *qj_candidate_comment(int i); // 页内第 i 格译文("" = 无)
 int qj_highlight();                     // 页内高亮下标,-1 = 无
 void qj_select(int i);                  // 鼠标点选页内第 i 格
 
+void qj_set_private(bool p); // 密码框:学习/日志静音(变了才调)
 void qj_focus_in();
 void qj_focus_out();
 void qj_reset();

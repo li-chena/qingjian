@@ -157,6 +157,12 @@ pub extern "C" fn qj_highlight() -> c_int {
     .unwrap_or(-1)
 }
 
+/// 私密输入(密码框等):true = 学习/日志静音。变了才需要调。
+#[unsafe(no_mangle)]
+pub extern "C" fn qj_set_private(private: bool) {
+    with_host(|h| h.set_private(private));
+}
+
 /// 上屏当前页第 `offset` 格(鼠标点选)。
 #[unsafe(no_mangle)]
 pub extern "C" fn qj_select(offset: c_int) {
