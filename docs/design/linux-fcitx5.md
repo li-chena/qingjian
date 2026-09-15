@@ -11,7 +11,9 @@
 | 目标框架 | Fcitx5,不做 IBus | 甲方系统(CachyOS)在跑 fcitx5;IBus 阵营候选窗常由桌面代绘,每候选译文无落点(甲方 2026-09-15 拍) |
 | 进程模型 | Core 与壳同进程(fcitx5 插件即进程内动态库) | 甲方拍「复刻 macOS」;architecture.md 明写 macOS/Linux 同进程 |
 | 壳形态 | 薄 C++ shim + Rust staticlib,C ABI 边界 | crates.io 无维护中的 fcitx5 引擎绑定(2026-09-15 查,仅 fcitx5-dbus 控制客户端);fcitx5 插件必须实现 C++ 虚类;上游 architecture.md 预判「Fcitx5 需要 C++ shim」 |
-| 候选窗/状态区/设置 UI | 全部交给 fcitx5 框架,不自绘 | fcitx5 自带候选窗与主题;`CandidateWord::comment()` 原生支持每候选注释(/usr/include/Fcitx5/Core/fcitx/candidatelist.h 已核);设置首版直接编辑 TOML 配置文件(host 层配置热加载照搬) |
+| 候选窗 UI | **自绘,复刻青简候选窗观感**;开发期先用 fcitx5 面板当脚手架打通输入,UI 单列一个阶段替换 | 甲方 2026-09-15 拍「UI 我想要 qingjian 的 UI」,推翻本稿初版「交框架」条 |
+| 自绘的实现通道 | 做成 fcitx5 的 UI 插件(Category=UI,即 classicui 坐的位置),像素自己画(照搬 macOS candidates/ 的 theme/row/frame 结构),窗口定位交合成器的输入法弹窗通道 | 甲方会话 = Wayland + niri(2026-09-15 查 fcitx5 进程环境):Wayland 协议下外部窗口拿不到光标全局坐标,自定位无路;UI 插件是 fcitx5 官方缝,classicui 即样板 |
+| 状态区/设置 UI | 交框架;设置首版直接编辑 TOML 配置文件(host 层配置热加载照搬) | 甲方拍的是候选窗 UI;状态区无青简观感诉求 |
 | 上游同步 | merge upstream/main、跟 tag 不追 commit;除接缝文件外不改上游文件,通用改动回馈上游 PR | 与甲方 2026-09-15 对话研判,详见下「上游同步」 |
 
 ## 模块结构(复刻对照表)
@@ -62,9 +64,10 @@ shim 只做四件事,每件都是一两行转发:
 1. 骨架:插件被 fcitx5 加载,输入法列表出现「青简」,按键透传不吞。(qlf-c 的前半)
 2. 引擎接线:拼音→候选→选词上屏,preedit 显示。(qlf-d 的骨干)
 3. 完整键位:翻页/数字选词/标点/中英切换/整句转换,行为对照 macOS 壳。
-4. 译文标注:comment 显示学习语言译文,断网不阻塞。(qlf-e)
-5. 学习与配置:词频落盘生效、TOML 热加载;密码框静默。
-6. 冒烟收口:三类应用(终端/浏览器/编辑器)实测,交甲方签字。(qlf-f)
+4. 译文标注:候选旁显示学习语言译文,断网不阻塞。(qlf-e;脚手架期走 comment 通道)
+5. 青简候选窗:自绘 UI 插件替换 classicui 呈现,观感对照 macOS 候选窗(卡片/高亮行/译文浅色列/云标);脚手架面板保留为配置开关退路。
+6. 学习与配置:词频落盘生效、TOML 热加载;密码框静默。
+7. 冒烟收口:三类应用(终端/浏览器/编辑器)实测,交甲方签字。(qlf-f)
 
 ## 不在本设计(记档防漂移)
 
