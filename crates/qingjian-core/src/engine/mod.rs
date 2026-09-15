@@ -19,6 +19,7 @@ mod prediction;
 mod privacy;
 mod query;
 mod rescoring;
+mod session;
 mod setup;
 mod statistics;
 mod timings;
@@ -47,6 +48,7 @@ pub use prediction::{
 };
 
 pub use query::Query;
+pub use session::EngineSession;
 pub use statistics::{BOOKS, Book, NoUsageMeter, Usage, UsageMeter, UsageSummary, book_scale};
 pub use timings::Timings;
 pub use translator::{NoTranslator, Translator};
@@ -54,7 +56,7 @@ pub use vocabulary::{
     FRESH_UNTIL, LevelCount, NoVocabularyTracker, VocabularySummary, VocabularyTracker,
 };
 
-use crate::candidate::{Candidate, CandidateKind, CandidateList, Language, Translation};
+use crate::candidate::{Candidate, CandidateKind, CandidateList, Language};
 use crate::composition::Composition;
 use crate::correction::{self, Correction, TypoCosts, typo};
 use crate::emoji::EmojiTable;

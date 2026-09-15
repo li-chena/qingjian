@@ -38,6 +38,9 @@ pub enum Setting {
     /// `[shortcut] question`，弹出菜单 v / u / i。
     QuestionKey,
 
+    /// `[shortcut] question_mark`，勾选框：没在组句时敲 `?` 也进问字。
+    QuestionMark,
+
     /// `[fuzzy]` 里的一条规则，值是 [`FuzzyRules::NAMES`] 的下标。
     Fuzzy(usize),
 
@@ -159,6 +162,7 @@ impl Setting {
             Self::Theme => 4,
             Self::ExpressionKey => 5,
             Self::QuestionKey => 6,
+            Self::QuestionMark => 41,
             Self::CloudEnabled => 7,
             Self::BaseUrl => 8,
             Self::Model => 9,
@@ -207,6 +211,7 @@ impl Setting {
             4 => Self::Theme,
             5 => Self::ExpressionKey,
             6 => Self::QuestionKey,
+            41 => Self::QuestionMark,
             7 => Self::CloudEnabled,
             8 => Self::BaseUrl,
             9 => Self::Model,
