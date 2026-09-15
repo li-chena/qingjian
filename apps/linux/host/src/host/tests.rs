@@ -407,6 +407,29 @@ fn english_candidates_off_is_pure_passthrough() {
 }
 
 #[test]
+fn english_mode_punctuation_stays_half_width() {
+    // 英文模式标点一律半角(macOS 口径):不转全角,原样透传;[ ] 也不当翻页键。
+    let mut h = sample_host();
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode());
+    // 空闲:透传,不出「【」「,」
+    assert!(!h.key(0x5b, 0, false), "英文模式空闲 [ 应透传半角");
+    assert!(h.pending_commit.is_none(), "不应转出全角「【」");
+    assert!(!h.key(0x2c, 0, false), "英文模式空闲 , 应透传半角");
+    assert!(h.pending_commit.is_none());
+    // 组句中:先把敲的字母原样上屏,标点本身交给应用;] 不翻页
+    type_str(&mut h, "kubectl");
+    assert!(!h.key(0x5d, 0, false), "英文模式组句中 ] 应透传而非翻页");
+    assert_eq!(
+        h.pending_commit.take().unwrap(),
+        "kubectl",
+        "敲的字母应原样上屏"
+    );
+    assert!(!h.composing());
+}
+
+#[test]
 fn config_hot_reload_applies_new_fields() {
     // 热加载也要覆盖新接的字段:翻页键与全角标点开关。
     let dir = std::env::temp_dir().join(format!("qj-test-fields-{}", std::process::id()));

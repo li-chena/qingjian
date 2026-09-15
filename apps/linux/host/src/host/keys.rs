@@ -176,11 +176,18 @@ impl Host {
                 true
             }
             // 翻页:配置的键对(缺省 `[` `]`)与 PageUp / PageDown(含小键盘)、方向键上下。
-            _ if composing && keyval == u32::from(self.page_keys.0) => {
+            // 英文模式不认字符翻页键:标点一律半角透传(选词靠方向键,翻页还有 PageUp/Down)。
+            _ if composing
+                && !self.engine.english_mode()
+                && keyval == u32::from(self.page_keys.0) =>
+            {
                 self.turn_page(-1);
                 true
             }
-            _ if composing && keyval == u32::from(self.page_keys.1) => {
+            _ if composing
+                && !self.engine.english_mode()
+                && keyval == u32::from(self.page_keys.1) =>
+            {
                 self.turn_page(1);
                 true
             }
@@ -212,10 +219,19 @@ impl Host {
             // 其余可打印键 = 标点/符号:组句中先上屏高亮候选,然后转全角;
             // 转不了的(半角规则如数字后的点)原样透传。空闲时同一条路。
             0x21..=0x7e => {
+                let c = keyval as u8 as char;
+                // 英文模式标点一律半角(macOS 口径):不走全角转换,组句先把敲的字母原样上屏,
+                // 标点本身交给应用。
+                if self.engine.english_mode() {
+                    if composing {
+                        self.commit_raw();
+                    }
+                    self.engine.note_passthrough(c);
+                    return false;
+                }
                 if composing {
                     self.commit_index(self.highlighted);
                 }
-                let c = keyval as u8 as char;
                 match self.engine.punctuate(c) {
                     Some(full_width) => {
                         self.push_commit(full_width.to_owned());
