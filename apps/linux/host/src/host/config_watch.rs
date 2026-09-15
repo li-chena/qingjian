@@ -40,7 +40,7 @@ impl Host {
         // 重扫一次的代价是 mmap 十来个文件,可接受,省一份「上次配置」状态。
         self.engine
             .set_extra_dictionaries(qingjian_platform::extra_dictionaries::load(
-                Some(&self.data_dir.join("dicts")),
+                Some(&self.data_dir.join("dist/dicts")),
                 Some(&self.data_dir.join("user-dicts")),
                 &config.dictionaries,
             ));

@@ -134,10 +134,11 @@ IMK 输入法，源码按 `app / host / imk / candidates / menubar / preferences
 `host`（Rust staticlib：Engine 装配 + 按键路由 + C ABI `bridge.rs`）+ `fcitx5-shim`（唯一的 C++ 文件 `addon.cpp`，只转发不放业务；
 CMake 构建，头文件合同 `qingjian.h` 两边不同步链接期就炸）。设计见 `docs/design/linux-fcitx5.md`。
 
-- 数据文件（用户数据目录 `~/.local/share/qingjian`，装机脚本铺；同名 `.qj` 优先于 `.tsv`）：`dict`、`lm`（缺了整句退化一元词频）、
-  `glossary-<语言>`、`english.tsv`、`emoji-{zh,en}.tsv`、`levels-{en,ja}.tsv`、`dicts/`（随包领域词库）、`user-dicts/`（用户词库）、
-  `model/model.qjm`（本地整句模型，用户自己的优先、装机不覆盖）。产品数据来自 GitHub `data` 发布资产（`gh release download data`），
-  打包脚本 `pack.sh` 从 `data/generated/` 取、缺了退回 `assets/` 样例源。
+- 数据文件分两层（`host/paths.rs`，fcitx5 StandardPaths 同款语义）：随包层 `~/.local/share/qingjian/dist/`（装机脚本独占、每次安装整个换新，升级即更新），
+  内含 `dict`、`lm`（缺了整句退化一元词频）、`glossary-<语言>`、`english.tsv`、`emoji-{zh,en}.tsv`、`levels-{en,ja}.tsv`、`dicts/`（随包领域词库）、`model/model.qjm`；
+  用户层 = 数据目录根（学习数据 + 用户自有覆盖件：同名文件、`user-dicts/`、`model/*.qjm`），查找时整层盖过随包层，层内同名 `.qj` 优先于 `.tsv`。
+  旧布局（随包件直接在根下）由 install.sh 按「与任一来源逐字节一致则删」迁移，不一致视作用户自有保留。
+  产品数据来自 GitHub `data` 发布资产（`gh release download data`），打包脚本 `pack.sh` 从 `data/generated/` 取、缺了退回 `assets/` 样例源。
 - 本地整句模型常数：防抖 80ms、结果最长等 2s（`host/model.rs`）；shim 侧 fcitx5 TimeEvent 每 20ms 一问（`addon.cpp` 的 `kModelPollUsec`），
   Rust 侧状态机没事等就不续期。
 - 日志：`~/.local/state/qingjian/logs/qingjian.log.<日期>`，按天分文件留 7 天，`[general] log_level` 热切换（`src/logging/`，

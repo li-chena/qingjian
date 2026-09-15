@@ -57,13 +57,30 @@ pub(super) fn load_glossary(dir: &Path, configured: &str) -> Option<(Language, G
     }
 }
 
+/// 数据查找分两层(fcitx5 StandardPaths 的「用户层盖过系统层」同款语义,见 install.sh):
+/// 数据目录根 = 用户层(学习数据 + 用户自有覆盖件,安装器不碰),
+/// `dist/` = 随包层(安装器独占,每次安装整个换新,升级即更新)。
+pub(super) fn data_layers(dir: &Path) -> [PathBuf; 2] {
+    [dir.to_path_buf(), dir.join("dist")]
+}
+
 pub(super) fn find_data(dir: &Path, stem: &str) -> Option<PathBuf> {
-    // 同名 .qj 优先于 .tsv,与 extra_dictionaries 的约定一致。
-    for ext in ["qj", "tsv"] {
-        let path = dir.join(format!("{stem}.{ext}"));
-        if path.is_file() {
-            return Some(path);
+    // 用户层整层先于随包层;层内同名 .qj 优先于 .tsv,与 extra_dictionaries 的约定一致。
+    for base in data_layers(dir) {
+        for ext in ["qj", "tsv"] {
+            let path = base.join(format!("{stem}.{ext}"));
+            if path.is_file() {
+                return Some(path);
+            }
         }
     }
     None
+}
+
+/// 精确文件名版(emoji 表、词汇等级表这类没有 .qj 变体的):同样用户层先于随包层。
+pub(super) fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
+    data_layers(dir)
+        .into_iter()
+        .map(|base| base.join(name))
+        .find(|path| path.is_file())
 }

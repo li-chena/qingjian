@@ -28,16 +28,38 @@ install -Dm755 "$so" "$lib_dir/libqingjian.so"
 install -Dm644 "$src_conf/addon-qingjian.conf" "$data_dir/addon/qingjian.conf"
 install -Dm644 "$src_conf/inputmethod-qingjian.conf" "$data_dir/inputmethod/qingjian.conf"
 
-# 数据文件:全量词库 + 各语种释义表 + 英文词表(user.tsv 学习数据不碰)。
+# 数据文件:全量词库 + 各语种释义表 + 英文词表 + 模型。分两层(fcitx5 StandardPaths 同款语义):
+#   $qdata/dist/ = 随包层,安装器独占,每次安装整个换新——升级就是覆盖这里;
+#   $qdata 根    = 用户层,学习数据(user*.tsv/usage.tsv)与用户自有的同名覆盖件,安装器不碰。
+# host 查找时用户层盖过随包层,所以「用户自己的文件优先」不再靠「装机不覆盖」实现。
 qdata="${XDG_DATA_HOME:-$HOME/.local/share}/qingjian"
-put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路径>;哪儿都没有就跳过(缺了对应功能降级)
-    local name="$1" dev_rel="$2" src
-    for src in "$src_data/$name" "$src_data/$dev_rel" "${repo:-/nonexistent}/data/generated/$name"; do
-        if [[ -f $src ]]; then
-            install -Dm644 "$src" "$qdata/$name"
-            return
+rm -rf "${qdata:?}/dist"
+migrate_legacy() { # migrate_legacy <文件名> <候选来源...>
+    # 旧版安装器把随包件直接放用户层,会永远盖住 dist:与任一来源逐字节一致的
+    # 是它装的,删掉;不一致 = 用户自有,保留(由它盖过随包正是分层的本意)。
+    local name="$1" src
+    shift
+    [[ -f "$qdata/$name" ]] || return 0
+    for src in "$@"; do
+        if [[ -f $src ]] && cmp -s "$qdata/$name" "$src"; then
+            rm -f "$qdata/$name"
+            return 0
         fi
     done
+}
+put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路径>;哪儿都没有就跳过(缺了对应功能降级)
+    local name="$1" dev_rel="$2" src
+    local sources=("$src_data/$name" "$src_data/$dev_rel" "${repo:-/nonexistent}/data/generated/$name")
+    # 同名 .qj 已进随包层就不再装 tsv 样例源(host 查找也是 .qj 优先),旧布局照样迁移。
+    if [[ $name != *.tsv || ! -f "$qdata/dist/${name%.tsv}.qj" ]]; then
+        for src in "${sources[@]}"; do
+            if [[ -f $src ]]; then
+                install -Dm644 "$src" "$qdata/dist/$name"
+                break
+            fi
+        done
+    fi
+    migrate_legacy "$name" "${sources[@]}"
 }
 put_data dict.qj         lexicon/dict.qj          # 产品词库(.qj 优先于 tsv)
 put_data dict.tsv        lexicon/dict.tsv
@@ -54,23 +76,36 @@ put_data emoji-zh.tsv    emoji/emoji-zh.tsv       # emoji 候选
 put_data emoji-en.tsv    emoji/emoji-en.tsv
 put_data levels-en.tsv   levels/levels-en.tsv     # 词汇等级(统计)
 put_data levels-ja.tsv   levels/levels-ja.tsv
-[[ -f "$qdata/dict.qj" || -f "$qdata/dict.tsv" ]] || { echo "词库缺失:分发包 data/ 或仓库里都找不到 dict.qj/dict.tsv" >&2; exit 1; }
+[[ -f "$qdata/dist/dict.qj" || -f "$qdata/dist/dict.tsv" || -f "$qdata/dict.qj" || -f "$qdata/dict.tsv" ]] \
+    || { echo "词库缺失:分发包 data/ 或仓库里都找不到 dict.qj/dict.tsv" >&2; exit 1; }
 
-# 随包领域词库(11 本,缺省只开成语,其余在配置 [dictionaries] domains 里开)
+# 随包领域词库(11 本,缺省只开成语,其余在配置 [dictionaries] domains 里开);
+# 用户自己的词库放 user-dicts/,不在此列。旧布局装在 $qdata/dicts,同样按逐字节一致迁移。
 for dicts_src in "$src_data/dicts" "${repo:-/nonexistent}/data/generated/dicts"; do
     if [[ -d $dicts_src ]]; then
         for f in "$dicts_src/"*.qj; do
-            [[ -f $f ]] && install -Dm644 "$f" "$qdata/dicts/$(basename "$f")"
+            [[ -f $f ]] || continue
+            install -Dm644 "$f" "$qdata/dist/dicts/$(basename "$f")"
+            legacy="$qdata/dicts/$(basename "$f")"
+            if [[ -f $legacy ]] && cmp -s "$legacy" "$f"; then
+                rm -f "$legacy"
+            fi
         done
         break
     fi
 done
+rmdir "$qdata/dicts" 2>/dev/null || true
 
-# 本地整句模型(可选):包里带了就装到用户数据目录 model/,没带就不重排。
-# 用户自己的 .qjm 放同一目录且优先(装机不覆盖已有文件)。
+# 本地整句模型(可选):随包的落 dist/model/,升级跟着包走;没带就不重排。
+# 用户自己的 .qjm 放 $qdata/model/,查找时盖过随包的。
 for model_src in "$src_data/model.qjm" "${repo:-/nonexistent}/data/model/model.qjm"; do
-    if [[ -f $model_src && ! -f "$qdata/model/model.qjm" ]]; then
-        install -Dm644 "$model_src" "$qdata/model/model.qjm"
+    if [[ -f $model_src ]]; then
+        install -Dm644 "$model_src" "$qdata/dist/model/model.qjm"
+        # 旧版安装器装到 $qdata/model/:与随包一致的是它装的,删掉;不一致 = 用户自有,保留优先。
+        if [[ -f "$qdata/model/model.qjm" ]] && cmp -s "$qdata/model/model.qjm" "$model_src"; then
+            rm -f "$qdata/model/model.qjm"
+            rmdir "$qdata/model" 2>/dev/null || true
+        fi
         break
     fi
 done

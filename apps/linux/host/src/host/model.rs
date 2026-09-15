@@ -27,7 +27,10 @@ impl Host {
         if self.model_loader.is_some() || self.engine.has_sentence_scorer() {
             return;
         }
-        let Some(path) = qingjian_neural::find_model(&self.data_dir.join("model")) else {
+        // 用户自己的模型放 model/,盖过随包层 dist/model/(分层见 paths.rs)。
+        let Some(path) = qingjian_neural::find_model(&self.data_dir.join("model"))
+            .or_else(|| qingjian_neural::find_model(&self.data_dir.join("dist/model")))
+        else {
             tracing::info!("没有本地整句模型文件,不重排");
             return;
         };

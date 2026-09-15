@@ -19,7 +19,7 @@ use qingjian_platform::{Config, Modifiers};
 use qingjian_translate::{Glossary, LevelTable};
 
 pub use paths::{config_path, data_dir};
-use paths::{find_data, load_glossary};
+use paths::{find_data, find_file, load_glossary};
 
 /// 云端词占位数:Linux 首版无云联想,不留位。
 const CLOUD_SLOTS: usize = 0;
@@ -142,10 +142,9 @@ impl Host {
         // emoji 表(中文、英文)合成一张;一张都没有就不出 emoji 候选。
         let mut emoji: Option<EmojiTable> = None;
         for name in ["emoji-zh.tsv", "emoji-en.tsv"] {
-            let path = dir.join(name);
-            if !path.is_file() {
+            let Some(path) = find_file(&dir, name) else {
                 continue;
-            }
+            };
             match EmojiTable::from_path(&path) {
                 Ok(table) => match &mut emoji {
                     Some(all) => all.merge(table),
@@ -164,10 +163,9 @@ impl Host {
             (Language::English, "levels-en.tsv"),
             (Language::Japanese, "levels-ja.tsv"),
         ] {
-            let path = dir.join(file);
-            if !path.is_file() {
+            let Some(path) = find_file(&dir, file) else {
                 continue;
-            }
+            };
             match LevelTable::from_path(&path) {
                 Ok(table) => vocabulary = vocabulary.with_levels(language, table),
                 Err(error) => tracing::warn!(%error, file, "词汇等级表读不了,不分级"),
