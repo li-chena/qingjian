@@ -77,7 +77,7 @@ shim 只做四件事,每件都是一两行转发:
 
 - **predict 网络栈污染所有配置消费方**(2026-09-15 打包时发现):`qingjian-platform` 的 `Config` 内嵌 `PredictConfig`,而后者与 async-openai/reqwest/openssl 网络客户端同在 `qingjian-predict` crate。结果:任何只想读配置的人(含本 Linux 壳)都被迫链入整套 HTTP/TLS 栈,`libqingjian.so` 被撑到 16MB 且引用一批 OpenSSL 符号。当前用 CMake 显式链 OpenSSL 让 `.so` 自足(`ldd` 声明 libssl/libcrypto,任何 OpenSSL 3 机器可稳定加载);**根治**应给 predict 的网络依赖加 cargo feature 开关(`client` 默认开,platform 以 `default-features = false` 只取 `PredictConfig` 纯配置类型),这样 Linux 壳不再链 openssl、.so 大幅瘦身。此项作为独立上游 PR,不塞进 Linux 壳 PR。
 
-- **模型后台接上时不补当前轮整句重排**(2026-09-15 巡检二 F3):`rescoring_pending()` 在打分器未接上时恒 false,加载窗口里敲出的那一轮永远错过重排。Linux 壳已修(`model_poll` 里接上即补查,带「未翻页未动高亮」克制守卫);**macOS 壳同款缺口**(`apps/macos/src/host/model.rs` attach 后同样不补),待提上游 issue(文案已起草,候甲方账号发出),随 logging/模型状态机提库批次一起修,别只修一边。
+- **模型后台接上时不补当前轮整句重排**(2026-09-15 巡检二 F3):`rescoring_pending()` 在打分器未接上时恒 false,加载窗口里敲出的那一轮永远错过重排。Linux 壳已修(`model_poll` 里接上即补查,带「未翻页未动高亮」克制守卫);**macOS 壳同款缺口**(`apps/macos/src/host/model.rs` attach 后同样不补),已提上游 issue(https://github.com/qingjian-team/qingjian/issues/99,2026-09-15 甲方授权发出),随 logging/模型状态机提库批次一起修,别只修一边。
 
 - **preedit 光标单位三处口径不一**(2026-09-15 巡检四 F4-6):engine 侧 marked 注释说「按拼接后的字符数」,壳合同 `qj_preedit_cursor` 与 fcitx5 `Text::setCursor` 都按字节。当前 preedit 恒为 ASCII(三种 MarkedKind 都是拼音/字母),字符数==字节数无差。口径立此为准:**壳交给 fcitx5 的必须是字节偏移**;将来 preedit 引入非 ASCII 段(如纠错段)时,须在壳侧做 char→byte 换算(或把 engine 口径改成字节)。潜伏项,只立口径不改代码。
 
