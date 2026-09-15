@@ -33,6 +33,29 @@ impl Host {
         self.page_size = config.general.page_size();
         self.page_keys = config.general.page_keys();
         self.english_candidates = config.general.english_candidates;
+        crate::logging::set_level(config.general.log_level);
+        // 附加词库(随包领域词库 + 用户目录 user-dicts/):整份重扫——只有配置真变了才走到这里,
+        // 重扫一次的代价是 mmap 十来个文件,可接受,省一份「上次配置」状态。
+        self.engine
+            .set_extra_dictionaries(qingjian_platform::extra_dictionaries::load(
+                Some(&self.data_dir.join("dicts")),
+                Some(&self.data_dir.join("user-dicts")),
+                &config.dictionaries,
+            ));
+        // 输入日志:变了才换 logger(换会 flush 旧的)。
+        if self.input_log_enabled != Some(config.general.input_log) {
+            self.input_log_enabled = Some(config.general.input_log);
+            if config.general.input_log {
+                let path = self.data_dir.join("input-log.jsonl");
+                tracing::info!(path = %path.display(), "输入日志开着");
+                self.engine
+                    .set_input_logger(Box::new(qingjian_learning::InputLog::open(path)));
+                self.engine.log_session(env!("CARGO_PKG_VERSION"), "linux");
+            } else {
+                self.engine
+                    .set_input_logger(Box::new(qingjian_core::engine::NoInputLogger));
+            }
+        }
         if config.model.enabled != self.model_enabled {
             self.model_enabled = config.model.enabled;
             if self.model_enabled {

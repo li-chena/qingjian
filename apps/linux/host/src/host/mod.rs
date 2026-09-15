@@ -11,11 +11,12 @@ mod tests;
 
 use std::path::PathBuf;
 
-use qingjian_core::{CandidateLayout, Engine, Language};
+use qingjian_core::{CandidateLayout, EmojiTable, Engine, Language};
 use qingjian_dictionary::{Dictionary, WordList};
-use qingjian_learning::FrequencyLearner;
+use qingjian_learning::{FrequencyLearner, UsageStats, VocabularyBook};
+use qingjian_lm::BigramModel;
 use qingjian_platform::{Config, Modifiers};
-use qingjian_translate::Glossary;
+use qingjian_translate::{Glossary, LevelTable};
 
 pub use paths::{config_path, data_dir};
 use paths::{find_data, load_glossary};
@@ -60,6 +61,8 @@ pub struct Host {
     page_keys: (char, char),
     /// 英文模式给不给候选(配置 `[general] english_candidates`);关掉就是纯直通。
     english_candidates: bool,
+    /// 输入日志当前开关(热加载时变了才换 logger,与 macOS 同款判等)。
+    input_log_enabled: Option<bool>,
     /// 本地整句模型的后台加载回执;None = 没在加载。
     model_loader: Option<model::ModelLoader>,
     /// 配置 `[model] enabled` 当前生效值(变了才装/卸)。
@@ -112,6 +115,57 @@ impl Host {
                 Err(error) => tracing::warn!(%error, "英→中释义表加载失败"),
             }
         }
+        // 语言模型可选:没有就退化成一元词频整句(打包数据带 lm.qj)。
+        if let Some(path) = find_data(&dir, "lm") {
+            match BigramModel::from_path(&path) {
+                Ok(model) => {
+                    tracing::info!(
+                        words = model.word_count(),
+                        bigrams = model.bigram_count(),
+                        "语言模型已加载"
+                    );
+                    engine = engine.with_language_model(Box::new(model));
+                }
+                Err(error) => tracing::warn!(%error, "语言模型加载失败,按一元词频整句"),
+            }
+        }
+        // emoji 表(中文、英文)合成一张;一张都没有就不出 emoji 候选。
+        let mut emoji: Option<EmojiTable> = None;
+        for name in ["emoji-zh.tsv", "emoji-en.tsv"] {
+            let path = dir.join(name);
+            if !path.is_file() {
+                continue;
+            }
+            match EmojiTable::from_path(&path) {
+                Ok(table) => match &mut emoji {
+                    Some(all) => all.merge(table),
+                    None => emoji = Some(table),
+                },
+                Err(error) => tracing::warn!(%error, name, "emoji 表加载失败,跳过"),
+            }
+        }
+        if let Some(table) = emoji {
+            tracing::info!(words = table.len(), "emoji 表已加载");
+            engine = engine.with_emoji(table);
+        }
+        // 输入统计与词汇记录(统计页的数据源);词汇等级表可选,有就按级统计。
+        let mut vocabulary = VocabularyBook::open(dir.join("user-vocab.tsv"));
+        for (language, file) in [
+            (Language::English, "levels-en.tsv"),
+            (Language::Japanese, "levels-ja.tsv"),
+        ] {
+            let path = dir.join(file);
+            if !path.is_file() {
+                continue;
+            }
+            match LevelTable::from_path(&path) {
+                Ok(table) => vocabulary = vocabulary.with_levels(language, table),
+                Err(error) => tracing::warn!(%error, file, "词汇等级表读不了,不分级"),
+            }
+        }
+        engine = engine
+            .with_usage_meter(Box::new(UsageStats::open(dir.join("usage.tsv"))))
+            .with_vocabulary_tracker(Box::new(vocabulary));
         let page_size = config.general.page_size();
         let mut host = Host {
             engine,
@@ -133,6 +187,7 @@ impl Host {
             delete_mods: config.shortcut.delete_keys(),
             page_keys: config.general.page_keys(),
             english_candidates: config.general.english_candidates,
+            input_log_enabled: None,
             model_loader: None,
             model_enabled: false,
             rescore_deadline: None,

@@ -56,6 +56,10 @@ pub extern "C" fn qj_version() -> *const c_char {
 /// 返回 false = 数据缺失或加载失败,错误说明由 `qj_init_error` 取。
 #[unsafe(no_mangle)]
 pub extern "C" fn qj_init() -> bool {
+    // 日志落文件(~/.local/state/qingjian/logs);guard 活到进程结束,丢了会吞掉日志尾巴。
+    static LOG_GUARD: std::sync::OnceLock<Option<tracing_appender::non_blocking::WorkerGuard>> =
+        std::sync::OnceLock::new();
+    LOG_GUARD.get_or_init(crate::logging::init);
     let Some(dir) = crate::host::data_dir() else {
         return set_init_error("HOME/XDG_DATA_HOME 都不在,找不到数据目录".to_owned());
     };

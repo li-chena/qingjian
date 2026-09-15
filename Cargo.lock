@@ -2279,13 +2279,17 @@ dependencies = [
 name = "qingjian-linux-host"
 version = "0.1.0"
 dependencies = [
+ "jiff",
  "qingjian-core",
  "qingjian-dictionary",
  "qingjian-learning",
+ "qingjian-lm",
  "qingjian-neural",
  "qingjian-platform",
  "qingjian-translate",
  "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

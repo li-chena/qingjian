@@ -6,8 +6,12 @@ fn sample_host() -> Host {
     host_with(qingjian_platform::Config::default())
 }
 
+/// 每个 Host 一个独立临时数据目录:init 之后引擎会往数据目录写统计/日志,
+/// 绝不能拿 assets/sample 当数据目录(会把落盘文件写进仓库)。
 fn host_with(config: qingjian_platform::Config) -> Host {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/sample");
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let dir = temp_data_dir(&format!("h{}", SEQ.fetch_add(1, Ordering::Relaxed)));
     Host::init(dir, Some(config)).expect("样例数据应能装配")
 }
 
@@ -499,6 +503,57 @@ fn correction_gives_intended_candidate() {
         .filter_map(|i| h.layout.candidate(i))
         .any(|c| c.text == "你好");
     assert!(has, "nihoa 应纠错给出「你好」");
+}
+
+/// 建一个独立的临时数据目录(拷样例数据),测试写盘类功能不弄脏 assets/sample。
+fn temp_data_dir(tag: &str) -> PathBuf {
+    let sample = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../assets/sample");
+    let dir = std::env::temp_dir().join(format!("qj-test-{}-{}", tag, std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for f in ["dict.tsv", "english.tsv", "glossary-en.tsv"] {
+        std::fs::copy(sample.join(f), dir.join(f)).unwrap();
+    }
+    dir
+}
+
+#[test]
+fn user_extra_dictionary_appears_in_candidates() {
+    // 用户词库:user-dicts/ 下的 TSV 词条应进候选。
+    let dir = temp_data_dir("extradict");
+    std::fs::create_dir_all(dir.join("user-dicts")).unwrap();
+    std::fs::write(
+        dir.join("user-dicts/mine.tsv"),
+        "青简验证\tqing jian yan zheng\t500\n",
+    )
+    .unwrap();
+    let mut h = Host::init(dir.clone(), Some(qingjian_platform::Config::default()))
+        .expect("样例数据应能装配");
+    type_str(&mut h, "qingjianyanzheng");
+    let has = (0..h.layout.len())
+        .filter_map(|i| h.layout.candidate(i))
+        .any(|c| c.text == "青简验证");
+    assert!(has, "用户词库的词应出现在候选里");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn input_log_writes_when_enabled() {
+    // 输入日志(缺省开):上屏后 input-log.jsonl 应落盘;配置关掉则不再新增。
+    let dir = temp_data_dir("inputlog");
+    let mut h = Host::init(dir.clone(), Some(qingjian_platform::Config::default()))
+        .expect("样例数据应能装配");
+    type_str(&mut h, "ni");
+    h.key(0x20, 0, false);
+    h.pending_commit.take();
+    h.reset(); // 落盘时机与切窗对齐
+    let log = dir.join("input-log.jsonl");
+    assert!(log.exists(), "输入日志开着时应写 input-log.jsonl");
+    assert!(
+        std::fs::metadata(&log).unwrap().len() > 0,
+        "日志文件应有内容"
+    );
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// 假打分器:偏爱指定句子,其余打大负分(引擎自己的重排测试同款思路)。

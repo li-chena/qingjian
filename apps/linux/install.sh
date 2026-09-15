@@ -30,20 +30,41 @@ install -Dm644 "$src_conf/inputmethod-qingjian.conf" "$data_dir/inputmethod/qing
 
 # 数据文件:全量词库 + 各语种释义表 + 英文词表(user.tsv 学习数据不碰)。
 qdata="${XDG_DATA_HOME:-$HOME/.local/share}/qingjian"
-put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路径>
-    local name="$1" dev_rel="$2"
-    if [[ -f "$src_data/$name" ]]; then
-        install -Dm644 "$src_data/$name" "$qdata/$name"          # 分发模式:data/ 平铺
-    else
-        install -Dm644 "$src_data/$dev_rel" "$qdata/$name"       # 开发模式:assets 子目录
-    fi
+put_data() { # put_data <目标文件名> <开发模式源相对 assets 的路径>;哪儿都没有就跳过(缺了对应功能降级)
+    local name="$1" dev_rel="$2" src
+    for src in "$src_data/$name" "$src_data/$dev_rel" "${repo:-/nonexistent}/data/generated/$name"; do
+        if [[ -f $src ]]; then
+            install -Dm644 "$src" "$qdata/$name"
+            return
+        fi
+    done
 }
+put_data dict.qj         lexicon/dict.qj          # 产品词库(.qj 优先于 tsv)
 put_data dict.tsv        lexicon/dict.tsv
-put_data glossary-en.tsv glossary/glossary-en.tsv
+put_data lm.qj           lexicon/lm.qj            # 整句语言模型;缺了退化一元词频
 put_data english.tsv     lexicon/english.tsv
+put_data glossary-en.qj  glossary/glossary-en.qj
+put_data glossary-en.tsv glossary/glossary-en.tsv
+put_data glossary-zh.qj  glossary/glossary-zh.qj
 put_data glossary-zh.tsv glossary/glossary-zh.tsv
+put_data glossary-ja.qj  glossary/glossary-ja.qj
 put_data glossary-ja.tsv glossary/glossary-ja.tsv
 put_data glossary-es.tsv glossary/glossary-es.tsv
+put_data emoji-zh.tsv    emoji/emoji-zh.tsv       # emoji 候选
+put_data emoji-en.tsv    emoji/emoji-en.tsv
+put_data levels-en.tsv   levels/levels-en.tsv     # 词汇等级(统计)
+put_data levels-ja.tsv   levels/levels-ja.tsv
+[[ -f "$qdata/dict.qj" || -f "$qdata/dict.tsv" ]] || { echo "词库缺失:分发包 data/ 或仓库里都找不到 dict.qj/dict.tsv" >&2; exit 1; }
+
+# 随包领域词库(11 本,缺省只开成语,其余在配置 [dictionaries] domains 里开)
+for dicts_src in "$src_data/dicts" "${repo:-/nonexistent}/data/generated/dicts"; do
+    if [[ -d $dicts_src ]]; then
+        for f in "$dicts_src/"*.qj; do
+            [[ -f $f ]] && install -Dm644 "$f" "$qdata/dicts/$(basename "$f")"
+        done
+        break
+    fi
+done
 
 # 本地整句模型(可选):包里带了就装到用户数据目录 model/,没带就不重排。
 # 用户自己的 .qjm 放同一目录且优先(装机不覆盖已有文件)。

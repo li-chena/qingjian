@@ -30,14 +30,34 @@ cp "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$payload/conf/
 for t in qingjian qingjian-dark; do
     cp "$repo/apps/linux/theme/$t/"* "$payload/theme/$t/"
 done
-# 数据平铺进 data/(install.sh 分发模式从这里取)
-cp "$repo/assets/lexicon/dict.tsv"        "$payload/data/"
-cp "$repo/assets/lexicon/english.tsv"     "$payload/data/"
-cp "$repo/assets/glossary/glossary-en.tsv" "$payload/data/"
-cp "$repo/assets/glossary/glossary-zh.tsv" "$payload/data/"
-cp "$repo/assets/glossary/glossary-ja.tsv" "$payload/data/"
-cp "$repo/assets/glossary/glossary-es.tsv" "$payload/data/"
-# 本地整句模型(可选):训练仓库导出的 data/model/model.qjm 在就带上,没有就不重排。
+# 数据平铺进 data/(install.sh 分发模式从这里取)。
+# 产品数据(data/generated,由 gh release download data 取回)优先;打包过的 .qj 在就不再带同名 tsv 样例源。
+gen="$repo/data/generated"
+put_first() { # put_first <候选源...>:第一个存在的拷进 data/
+    local src
+    for src in "$@"; do
+        if [[ -f $src ]]; then
+            cp "$src" "$payload/data/"
+            return
+        fi
+    done
+}
+put_first "$gen/dict.qj"        "$repo/assets/lexicon/dict.tsv"
+put_first "$gen/lm.qj"
+put_first "$gen/english.tsv"    "$repo/assets/lexicon/english.tsv"
+put_first "$gen/glossary-en.qj" "$repo/assets/glossary/glossary-en.tsv"
+put_first "$gen/glossary-zh.qj" "$repo/assets/glossary/glossary-zh.tsv"
+put_first "$gen/glossary-ja.qj" "$repo/assets/glossary/glossary-ja.tsv"
+put_first "$repo/assets/glossary/glossary-es.tsv"
+# emoji 表与词汇等级表(git 资产;统计页按级数词汇)
+cp "$repo/assets/emoji/"emoji-*.tsv   "$payload/data/"
+cp "$repo/assets/levels/"levels-*.tsv "$payload/data/"
+# 随包领域词库(11 本,缺省只开成语,其余配置里开)
+if [[ -d "$gen/dicts" ]]; then
+    mkdir -p "$payload/data/dicts"
+    cp "$gen/dicts/"*.qj "$payload/data/dicts/"
+fi
+# 本地整句模型(可选):data 发布资产 model.qjm 在就带上,没有就不重排。
 if [[ -f "$repo/data/model/model.qjm" ]]; then
     cp "$repo/data/model/model.qjm" "$payload/data/"
 fi
