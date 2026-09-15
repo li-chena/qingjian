@@ -64,6 +64,12 @@ public:
             qj_set_private(isPrivate);
             lastPrivate_ = isPrivate;
         }
+        // 当前应用(program 名):按应用关英文候选用,变了才跨 FFI。
+        const std::string &program = event.inputContext()->program();
+        if (program != lastProgram_) {
+            qj_set_program(program.c_str());
+            lastProgram_ = program;
+        }
         const bool consumed =
             qj_key_event(event.rawKey().sym(), event.rawKey().states(),
                          event.isRelease());
@@ -112,9 +118,14 @@ public:
             const int cursor = qj_preedit_cursor();
             fcitx::Text preeditText(preedit, fcitx::TextFormatFlag::Underline);
             preeditText.setCursor(cursor);
-            if (ic->capabilityFlags().test(fcitx::CapabilityFlag::Preedit)) {
+            // 拼音行位置按配置([general] preedit):行内要应用支持,不支持就退候选窗口。
+            const uint32_t display = qj_preedit_display();
+            const bool inlineOk =
+                ic->capabilityFlags().test(fcitx::CapabilityFlag::Preedit);
+            if (display != 2 && inlineOk) {
                 panel.setClientPreedit(preeditText);
-            } else {
+            }
+            if (display == 2 || display == 0 || !inlineOk) {
                 panel.setPreedit(preeditText);
             }
             auto list = std::make_unique<fcitx::CommonCandidateList>();
@@ -187,6 +198,7 @@ private:
     bool ready_ = false;
     bool lastPrivate_ = false;
     bool panelShown_ = false;
+    std::string lastProgram_;
     std::unique_ptr<fcitx::EventSourceTime> modelTimer_;
     fcitx::TrackableObjectReference<fcitx::InputContext> lastIc_;
 };

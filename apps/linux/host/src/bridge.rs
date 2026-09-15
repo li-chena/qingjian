@@ -203,6 +203,24 @@ pub extern "C" fn qj_select(offset: c_int) {
     with_host(|h| h.select_on_page(offset.max(0) as usize));
 }
 
+/// 当前应用变了(fcitx5 的 program 名):按应用关英文候选用。shim 在名字变化时才调。
+#[unsafe(no_mangle)]
+pub extern "C" fn qj_set_program(program: *const c_char) {
+    if program.is_null() {
+        return;
+    }
+    let name = unsafe { CStr::from_ptr(program) }
+        .to_string_lossy()
+        .into_owned();
+    with_host(|h| h.set_program(&name));
+}
+
+/// 拼音行显示位置(配置 `[general] preedit`):0 = 行内+窗口,1 = 只行内,2 = 只窗口。
+#[unsafe(no_mangle)]
+pub extern "C" fn qj_preedit_display() -> c_uint {
+    with_host(|h| h.preedit_display()).unwrap_or(0)
+}
+
 /// 本地整句模型的定时驱动(shim 的 fcitx5 TimeEvent 每 20ms 调一次)。
 /// 返回位掩码:bit0 = 排序变了,shim 要重画面板;bit1 = 还有事在等,继续定时。
 #[unsafe(no_mangle)]

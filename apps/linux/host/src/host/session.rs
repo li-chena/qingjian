@@ -137,6 +137,25 @@ impl Host {
         }
     }
 
+    /// shim 告知当前应用(fcitx5 的 program 名);变了才调。
+    pub fn set_program(&mut self, program: &str) {
+        program.clone_into(&mut self.program);
+    }
+
+    /// 这个应用里英文模式给不给候选:全局开关开着,且应用不在 `[apps] english_candidates_off` 里。
+    pub(super) fn english_candidates_here(&self) -> bool {
+        self.english_candidates && !self.apps.english_candidates_off(&self.program)
+    }
+
+    /// 拼音行显示位置(shim 按它画):0 = 行内+窗口,1 = 只行内,2 = 只窗口。
+    pub fn preedit_display(&self) -> u32 {
+        match self.preedit_mode {
+            qingjian_platform::PreeditMode::Both => 0,
+            qingjian_platform::PreeditMode::Inline => 1,
+            qingjian_platform::PreeditMode::Window => 2,
+        }
+    }
+
     /// 落盘学习数据(焦点离开时调,与 macOS 的 flush 时机对齐)。
     pub fn flush(&mut self) {
         let _ = &self.data_dir; // user.tsv 路径在 learner 里;flush 由 Engine 统一发。

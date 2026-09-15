@@ -556,6 +556,34 @@ fn input_log_writes_when_enabled() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+#[test]
+fn per_app_english_candidates_off() {
+    // [apps] english_candidates_off 列出的应用里英文模式纯直通;别的应用不受影响。
+    let mut config = qingjian_platform::Config::default();
+    config.apps = qingjian_platform::AppsConfig::with_english_candidates_off(&["konsole"]);
+    let mut h = host_with(config);
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode());
+    h.set_program("konsole");
+    assert!(!h.key(0x6b, 0, false), "名单内应用里字母应透传");
+    assert!(!h.composing());
+    h.set_program("kate");
+    assert!(h.key(0x6b, 0, false), "名单外应用里应正常给英文候选");
+    assert!(h.composing());
+}
+
+#[test]
+fn preedit_display_follows_config() {
+    // [general] preedit 决定拼音行显示位置(0=两处 1=只行内 2=只窗口),shim 按它画。
+    let mut h = sample_host();
+    assert_eq!(h.preedit_display(), 0, "缺省两处都显示");
+    let mut config = qingjian_platform::Config::default();
+    config.general.preedit = qingjian_platform::PreeditMode::Window;
+    h.apply_config(&config);
+    assert_eq!(h.preedit_display(), 2, "配置只在窗口后应返回 2");
+}
+
 /// 假打分器:偏爱指定句子,其余打大负分(引擎自己的重排测试同款思路)。
 struct Prefers(&'static str);
 

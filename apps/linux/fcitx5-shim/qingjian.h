@@ -32,6 +32,9 @@ void qj_select(int i);                  // 鼠标点选页内第 i 格
 // 本地整句模型定时驱动(每 20ms 调一次):bit0 = 要重画面板,bit1 = 继续定时。
 uint32_t qj_model_poll();
 
+void qj_set_program(const char *program); // 当前应用名(变了才调):按应用关英文候选
+uint32_t qj_preedit_display();            // 拼音行位置:0 行内+窗口 / 1 只行内 / 2 只窗口
+
 void qj_set_private(bool p); // 密码框:学习/日志静音(变了才调)
 void qj_focus_in();
 void qj_focus_out();

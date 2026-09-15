@@ -107,9 +107,9 @@ impl Host {
         let question = composing && self.engine.question_mode();
         let unicode = question && self.engine.unicode_entry();
         match keyval {
-            // a-z:进缓冲区。英文候选关着时的英文模式是纯直通,字母不进缓冲区。
+            // a-z:进缓冲区。英文候选关着(全局或本应用)时的英文模式是纯直通,字母不进缓冲区。
             0x61..=0x7a => {
-                if self.engine.english_mode() && !self.english_candidates && !composing {
+                if self.engine.english_mode() && !self.english_candidates_here() && !composing {
                     self.engine.note_passthrough(keyval as u8 as char);
                     return false;
                 }

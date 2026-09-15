@@ -61,6 +61,12 @@ pub struct Host {
     page_keys: (char, char),
     /// 英文模式给不给候选(配置 `[general] english_candidates`);关掉就是纯直通。
     english_candidates: bool,
+    /// 按应用关英文候选的名单(配置 `[apps] english_candidates_off`)。
+    apps: qingjian_platform::AppsConfig,
+    /// 当前应用(fcitx5 的 program 名,shim 在变化时告知)。
+    program: String,
+    /// 拼音行显示位置(配置 `[general] preedit`),shim 按它画。
+    preedit_mode: qingjian_platform::PreeditMode,
     /// 输入日志当前开关(热加载时变了才换 logger,与 macOS 同款判等)。
     input_log_enabled: Option<bool>,
     /// 本地整句模型的后台加载回执;None = 没在加载。
@@ -187,6 +193,9 @@ impl Host {
             delete_mods: config.shortcut.delete_keys(),
             page_keys: config.general.page_keys(),
             english_candidates: config.general.english_candidates,
+            apps: config.apps.clone(),
+            program: String::new(),
+            preedit_mode: config.general.preedit,
             input_log_enabled: None,
             model_loader: None,
             model_enabled: false,
