@@ -68,10 +68,12 @@ impl Host {
             self.shift_armed = false;
         }
         // 修饰键+数字快捷键(只在组句中认):译词上屏(缺省 Alt=第一个,Alt+Shift=第二个)、删候选(缺省 Shift)。
-        // 表达式模式(v2^3)里 ⇧+数字打的是 ^ * ( ),不当快捷键。
+        // 表达式模式(v2^3)里 ⇧+数字打的是 ^ * ( ),不当快捷键;配置成翻页键的字符也让位(如 "!(")。
         if !release
             && self.composing()
             && !self.engine.expression_mode()
+            && keyval != u32::from(self.page_keys.0)
+            && keyval != u32::from(self.page_keys.1)
             && let Some(offset) = digit_offset(keyval).or_else(|| shifted_digit_offset(keyval))
         {
             let pressed = state & (SHIFT | CTRL | ALT | SUPER);
@@ -143,6 +145,27 @@ impl Host {
                 self.refresh();
                 true
             }
+            // 英文组句里的数字、大写、下划线:进缓冲区(win32、McDonald、snake_case),不选词不打断。
+            _ if composing
+                && self.engine.english_mode()
+                && matches!(keyval, 0x30..=0x39 | 0x41..=0x5a | 0x5f) =>
+            {
+                self.engine.push(keyval as u8 as char);
+                self.refresh();
+                true
+            }
+            // 音节分隔符 ':组句中进缓冲区(xi'an、英文 don't),不当标点。
+            0x27 if composing => {
+                self.engine.push('\'');
+                self.refresh();
+                true
+            }
+            // 微软/搜狗双拼的 `;` 是 ing 键:末尾有落单声母时进缓冲区,其他时候还是标点。
+            0x3b if composing && self.engine.takes_semicolon() => {
+                self.engine.push(';');
+                self.refresh();
+                true
+            }
             // 数字 1-9(含小键盘):组句中按页内序号上屏。
             _ if composing && !expression && !unicode && digit_offset(keyval).is_some() => {
                 let offset = digit_offset(keyval).expect("刚匹配过");
@@ -196,14 +219,8 @@ impl Host {
                 self.refresh();
                 true
             }
-            // 组句中敲 `-`:进入英文直输段(`no-way`),不当翻页键——翻页键见配置 `[general] page_keys`。
-            // 表达式的 `-` 是运算符,已在上面进缓冲;问字模式不进直输段。
-            0x2d if composing && !question => {
-                self.engine.push('-');
-                self.refresh();
-                true
-            }
             // 翻页:配置的键对(缺省 `[` `]`)与 PageUp / PageDown(含小键盘)、方向键上下。
+            // 先于 `-` 的直输段入口:用户显式配 "-=" 时 `-` 是翻页键。
             // 英文模式不认字符翻页键:标点一律半角透传(选词靠方向键,翻页还有 PageUp/Down)。
             _ if composing
                 && !self.engine.english_mode()
@@ -217,6 +234,13 @@ impl Host {
                 && keyval == u32::from(self.page_keys.1) =>
             {
                 self.turn_page(1);
+                true
+            }
+            // 组句中敲 `-`:进入英文直输段(`no-way`),不当翻页键——翻页键见配置 `[general] page_keys`。
+            // 表达式的 `-` 是运算符,已在上面进缓冲;问字模式不进直输段。
+            0x2d if composing && !question => {
+                self.engine.push('-');
+                self.refresh();
                 true
             }
             0xff55 | 0xff9a | 0xff52 | 0xff97 if composing => {
@@ -257,6 +281,14 @@ impl Host {
                     self.engine.note_passthrough(c);
                     return false;
                 }
+                // 中文组句敲半角标点(翻页键已在前截):进缓冲区,整段成为英文直输段
+                // (`hello,` `dui'ma?`)——与 macOS 实现、docs/user/input/shortcuts.md 口径一致。
+                if composing && !question && !expression {
+                    self.engine.push(c);
+                    self.refresh();
+                    return true;
+                }
+                // 问字/表达式里的非模式字符:先把高亮候选上屏,再按标点处理。
                 if composing {
                     self.commit_index(self.highlighted);
                 }
@@ -273,11 +305,13 @@ impl Host {
                     }
                 }
             }
-            // 修饰键本身(Ctrl / Alt / Super / CapsLock …)按下永远透传,应用要看修饰状态。
-            0xffe1..=0xffee => false,
-            // 组句期间剩下的编辑键(Tab / Home / F 键…)一律接管吞掉,
+            // 修饰键本身(Ctrl / Alt / Super / CapsLock、AltGr、Num_Lock…)按下永远透传,
+            // 应用要看修饰状态。ISO_* 级别键在 0xfe00 段,由下面的兜底透传。
+            0xffe1..=0xffee | 0xff7f => false,
+            // 组句期间功能键区(0xff00 段:Tab / Home / F 键…)剩下的一律接管吞掉,
             // 否则应用会动光标、丢焦点,组句跟着作废(macOS 同款口径)。
-            _ if composing => true,
+            // 段外的键(XF86 媒体键、AltGr 打出的非 ASCII 字符)不吞:那不是编辑动作。
+            _ if composing && (0xff00..=0xffff).contains(&keyval) => true,
             _ => false,
         }
     }

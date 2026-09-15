@@ -79,9 +79,6 @@ public:
         // 未吞掉的键也要同步:比如「组句中敲半角标点」= 候选先上屏、字符再透传,
         // 上屏文本必须赶在放行的按键之前发给应用。
         sync(event.inputContext());
-        // 本地整句模型:每个键之后起(重起)轮询,Rust 侧状态机没事等会让它停。
-        lastIc_ = event.inputContext()->watch();
-        armModelTimer();
     }
 
     void activate(const fcitx::InputMethodEntry & /*entry*/,
@@ -159,6 +156,10 @@ public:
         }
         ic->updatePreedit();
         ic->updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        // 本地整句模型:每次重画后起(重起)轮询——按键、鼠标点选、定时重画都走到这里;
+        // Rust 侧状态机没事等就不再续期。
+        lastIc_ = ic->watch();
+        armModelTimer();
     }
 
     void clearPanel(fcitx::InputContext *ic) {

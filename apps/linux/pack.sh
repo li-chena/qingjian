@@ -52,10 +52,14 @@ put_first "$repo/assets/glossary/glossary-es.tsv"
 # emoji 表与词汇等级表(git 资产;统计页按级数词汇)
 cp "$repo/assets/emoji/"emoji-*.tsv   "$payload/data/"
 cp "$repo/assets/levels/"levels-*.tsv "$payload/data/"
-# 随包领域词库(11 本,缺省只开成语,其余配置里开)
+# 随包领域词库(11 本,缺省只开成语,其余配置里开);目录空时跳过(glob 不展开也不炸)
 if [[ -d "$gen/dicts" ]]; then
     mkdir -p "$payload/data/dicts"
-    cp "$gen/dicts/"*.qj "$payload/data/dicts/"
+    for f in "$gen/dicts/"*.qj; do
+        if [[ -f $f ]]; then
+            cp "$f" "$payload/data/dicts/"
+        fi
+    done
 fi
 # 本地整句模型(可选):data 发布资产 model.qjm 在就带上,没有就不重排。
 if [[ -f "$repo/data/model/model.qjm" ]]; then

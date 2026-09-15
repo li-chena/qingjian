@@ -129,6 +129,21 @@ IMK 输入法，源码按 `app / host / imk / candidates / menubar / preferences
 外加 `settings`（WinUI 3 设置程序）与 `installer`（Inno Setup）。不合成一个 crate，因为 DLL 不能带 Engine 的依赖树，见 `apps/windows/README.md`；
 协议类型在 `qingjian-platform::protocol`，设计见 `docs/design/architecture.md`「Windows：TSF」。
 
+## apps/linux
+
+`host`（Rust staticlib：Engine 装配 + 按键路由 + C ABI `bridge.rs`）+ `fcitx5-shim`（唯一的 C++ 文件 `addon.cpp`，只转发不放业务；
+CMake 构建，头文件合同 `qingjian.h` 两边不同步链接期就炸）。设计见 `docs/design/linux-fcitx5.md`。
+
+- 数据文件（用户数据目录 `~/.local/share/qingjian`，装机脚本铺；同名 `.qj` 优先于 `.tsv`）：`dict`、`lm`（缺了整句退化一元词频）、
+  `glossary-<语言>`、`english.tsv`、`emoji-{zh,en}.tsv`、`levels-{en,ja}.tsv`、`dicts/`（随包领域词库）、`user-dicts/`（用户词库）、
+  `model/model.qjm`（本地整句模型，用户自己的优先、装机不覆盖）。产品数据来自 GitHub `data` 发布资产（`gh release download data`），
+  打包脚本 `pack.sh` 从 `data/generated/` 取、缺了退回 `assets/` 样例源。
+- 本地整句模型常数：防抖 80ms、结果最长等 2s（`host/model.rs`）；shim 侧 fcitx5 TimeEvent 每 20ms 一问（`addon.cpp` 的 `kModelPollUsec`），
+  Rust 侧状态机没事等就不续期。
+- 日志：`~/.local/state/qingjian/logs/qingjian.log.<日期>`，按天分文件留 7 天，`[general] log_level` 热切换（`src/logging/`，
+  结构照搬 `apps/macos/src/app/logging/`，两处要人肉同步——待提库 `qingjian-platform`）。
+- 输入日志 `input-log.jsonl`、词频 `user.tsv`、统计 `usage.tsv`、词汇 `user-vocab.tsv` 都在用户数据目录。
+
 ## assets
 
 - `assets/sample/`：手写样例词库与释义表，不是产品数据。

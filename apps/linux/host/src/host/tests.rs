@@ -118,13 +118,78 @@ fn punctuation_idle_full_width() {
 }
 
 #[test]
-fn punctuation_while_composing_commits_then_converts() {
+fn punctuation_while_composing_enters_raw_segment() {
+    // 组句中敲半角标点(翻页键除外):进缓冲区成英文直输段(hello, dui'ma?),
+    // 与 macOS 实现、docs/user/input/shortcuts.md 口径一致。
     let mut h = sample_host();
     type_str(&mut h, "ni");
-    let top = h.layout.candidate(h.highlighted).unwrap().text.clone();
-    assert!(h.key(0x2c, 0, false));
-    assert_eq!(h.pending_commit.take().unwrap(), format!("{top}\u{ff0c}"));
-    assert!(!h.composing());
+    assert!(h.key(0x2c, 0, false), ", 应进缓冲区");
+    assert!(h.composing());
+    assert!(h.engine.raw_mode(), "标点应把整段变成直输段");
+    assert_eq!(h.engine.composition().text(), "ni,");
+    assert!(h.pending_commit.is_none(), "不应上屏候选或全角标点");
+    assert!(h.key(0xff0d, 0, false));
+    assert_eq!(h.pending_commit.take().unwrap(), "ni,");
+}
+
+#[test]
+fn apostrophe_separates_syllables() {
+    // 音节分隔符 ':xi'an 组句中进缓冲区,不当标点。
+    let mut h = sample_host();
+    type_str(&mut h, "xi");
+    assert!(h.key(0x27, 0, false), "' 应进缓冲区");
+    assert!(h.composing());
+    assert!(h.pending_commit.is_none());
+    type_str(&mut h, "an");
+    assert_eq!(h.engine.composition().text(), "xi'an");
+}
+
+#[test]
+fn shuangpin_semicolon_completes_syllable() {
+    // 微软/搜狗双拼的 ; 是 ing 键:末尾落单声母时进缓冲区,不当标点。
+    let mut config = qingjian_platform::Config::default();
+    config.general.shuangpin = "microsoft".to_owned();
+    let mut h = host_with(config);
+    type_str(&mut h, "x");
+    assert!(h.engine.takes_semicolon(), "落单声母 x 后 ; 应是 ing");
+    assert!(h.key(0x3b, 0, false), "; 应进缓冲区");
+    assert_eq!(h.engine.composition().text(), "x;");
+    assert!(h.pending_commit.is_none());
+}
+
+#[test]
+fn english_composing_takes_digits_uppercase_apostrophe() {
+    // 英文组句中数字、大写、' 进缓冲区(win32 / McDonald / don't),不选词不打断。
+    let mut h = sample_host();
+    h.key(0xffe1, 0, false);
+    h.key(0xffe1, 1, true);
+    assert!(h.engine.english_mode());
+    type_str(&mut h, "win");
+    assert!(h.key(0x33, 0, false), "英文组句中 3 应进缓冲区");
+    assert_eq!(h.engine.composition().text(), "win3");
+    h.key(0xff1b, 0, false);
+    type_str(&mut h, "don");
+    assert!(h.key(0x27, 0, false), "英文组句中 ' 应进缓冲区");
+    assert_eq!(h.engine.composition().text(), "don'");
+    h.key(0xff1b, 0, false);
+    type_str(&mut h, "mc");
+    assert!(h.key(0x44, 1, false), "英文组句中大写 D 应进缓冲区");
+    assert_eq!(h.engine.composition().text(), "mcD");
+}
+
+#[test]
+fn page_keys_dash_equals_config_beats_raw_entry() {
+    // 用户显式配回 page_keys = "-=":翻页优先于 - 的直输段入口。
+    let mut config = qingjian_platform::Config::default();
+    config.general.page_keys = "-=".to_owned();
+    let mut h = host_with(config);
+    type_str(&mut h, "s");
+    assert!(h.page_count() > 1);
+    assert!(h.key(0x3d, 0, false), "= 应翻下一页");
+    assert_eq!(h.page, 1);
+    assert!(h.key(0x2d, 0, false), "- 应翻回上一页");
+    assert_eq!(h.page, 0);
+    assert!(!h.engine.raw_mode(), "配置为翻页键的 - 不应进直输段");
 }
 
 #[test]
@@ -392,6 +457,10 @@ fn composing_swallows_unknown_editing_keys() {
     assert!(h.key(0xffbe, 0, false), "组句中 F1 应被吞掉");
     assert!(h.composing(), "吞掉之后组句不受影响");
     assert!(!h.key(0xffe3, 0, false), "Ctrl 修饰键本身按下应透传");
+    assert!(!h.key(0xfe03, 0, false), "AltGr(ISO_Level3_Shift)应透传");
+    assert!(!h.key(0xff7f, 0, false), "Num_Lock 应透传");
+    assert!(!h.key(0x1008ff13, 0, false), "XF86 媒体键应透传");
+    assert!(!h.key(0xe9, 0, false), "AltGr 打出的非 ASCII 字符(é)应透传");
     h.key(0xff1b, 0, false);
     assert!(!h.key(0xff09, 0, false), "空闲时 Tab 应透传");
 }
@@ -559,8 +628,10 @@ fn input_log_writes_when_enabled() {
 #[test]
 fn per_app_english_candidates_off() {
     // [apps] english_candidates_off 列出的应用里英文模式纯直通;别的应用不受影响。
-    let mut config = qingjian_platform::Config::default();
-    config.apps = qingjian_platform::AppsConfig::with_english_candidates_off(&["konsole"]);
+    let config = qingjian_platform::Config {
+        apps: qingjian_platform::AppsConfig::with_english_candidates_off(&["konsole"]),
+        ..Default::default()
+    };
     let mut h = host_with(config);
     h.key(0xffe1, 0, false);
     h.key(0xffe1, 1, true);
@@ -627,6 +698,35 @@ fn model_rescoring_requests_after_debounce_and_repaints() {
     }
     assert!(repainted, "重排结果到了应要求重画");
     assert!(h.composing(), "重画只是换排序,组句不受影响");
+}
+
+#[test]
+fn model_poll_keeps_polling_bit_while_work_pending() {
+    // 重画那次返回值也要带「继续定时」位,否则 shim 的一次性定时器带着在途工作停摆。
+    let mut h = sample_host();
+    h.engine
+        .set_async_sentence_scorer(Some(Box::new(Prefers("你好"))));
+    type_str(&mut h, "nihao");
+    h.rescore_deadline = Some(std::time::Instant::now());
+    // 造一个「加载线程还挂着」的在途状态:重画后仍须继续轮询。
+    let (_tx, rx) = std::sync::mpsc::channel();
+    h.model_loader = Some(rx);
+    let start = std::time::Instant::now();
+    let mut repaint = None;
+    while start.elapsed() < std::time::Duration::from_secs(2) {
+        let poll = h.model_poll();
+        if poll & 1 != 0 {
+            repaint = Some(poll);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let poll = repaint.expect("应有一次重画");
+    assert!(
+        poll & 0b10 != 0,
+        "加载线程仍在途:重画那次也应带继续定时位,实得 {poll:#b}"
+    );
+    drop(_tx);
 }
 
 #[test]

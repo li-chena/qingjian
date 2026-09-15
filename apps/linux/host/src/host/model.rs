@@ -94,37 +94,46 @@ impl Host {
     /// bit0 = 重排结果换了排序,shim 要重画面板;bit1 = 还有事在等,继续定时。
     pub fn model_poll(&mut self) -> u32 {
         self.attach_loaded_model();
-        let mut keep = self.model_loader.is_some();
         if !self.composing() {
             self.rescore_deadline = None;
             self.rescore_since = None;
-            return if keep { 0b10 } else { 0 };
+            return self.pending_bit();
         }
-        if let Some(deadline) = self.rescore_deadline {
-            if Instant::now() >= deadline {
-                self.rescore_deadline = None;
-                if self.engine.request_rescoring() {
-                    self.rescore_since = Some(Instant::now());
-                }
+        if let Some(deadline) = self.rescore_deadline
+            && Instant::now() >= deadline
+        {
+            self.rescore_deadline = None;
+            if self.engine.request_rescoring() {
+                self.rescore_since = Some(Instant::now());
             }
-            keep = true;
         }
         if let Some(since) = self.rescore_since {
             if self.engine.poll_rescoring() {
                 self.rescore_since = None;
                 // 用户已翻页或动过高亮就只留着分不动画面(与 macOS 同款克制)。
                 if self.page == 0 && !self.navigated {
+                    // refresh 可能又攒下新的整句路径(重新起防抖),重画位之外还得带续轮位。
                     self.refresh();
-                    return 0b01;
+                    return 0b01 | self.pending_bit();
                 }
             } else if since.elapsed() > MAX_WAIT {
                 // 等太久多半是前文变了、结果作废;真卡住也只是这轮不重排。
                 tracing::debug!("等本地整句模型超时,本轮不重排");
                 self.rescore_since = None;
-            } else {
-                keep = true;
             }
         }
-        if keep { 0b10 } else { 0 }
+        self.pending_bit()
+    }
+
+    /// 还有事在等(加载线程、防抖计时、等分)就带上「继续定时」位。
+    fn pending_bit(&self) -> u32 {
+        if self.model_loader.is_some()
+            || self.rescore_deadline.is_some()
+            || self.rescore_since.is_some()
+        {
+            0b10
+        } else {
+            0
+        }
     }
 }

@@ -101,3 +101,41 @@ pub fn prune(dir: &Path, today: jiff::civil::Date) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_keeps_recent_files_and_unrelated_names() {
+        let dir = std::env::temp_dir().join("qingjian-linux-log-prune-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in [
+            "qingjian.log.2026-09-04",
+            "qingjian.log.2026-08-29",
+            "qingjian.log.2026-08-28",
+            "qingjian.log.bogus",
+            "notes.txt",
+        ] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        prune(&dir, jiff::civil::date(2026, 9, 4));
+        let mut left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "notes.txt",
+                "qingjian.log.2026-08-29",
+                "qingjian.log.2026-09-04",
+                "qingjian.log.bogus"
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

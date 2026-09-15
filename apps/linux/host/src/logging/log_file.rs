@@ -58,3 +58,22 @@ impl Write for LogFile {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reopens_after_the_file_is_deleted() {
+        let dir = std::env::temp_dir().join("qingjian-linux-log-file-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut log = LogFile::new(dir.clone());
+        log.write_all(b"one\n").unwrap();
+        let path = LogFile::path_for(&dir, jiff::Zoned::now().date());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\n");
+        std::fs::remove_file(&path).unwrap();
+        log.write_all(b"two\n").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "two\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
