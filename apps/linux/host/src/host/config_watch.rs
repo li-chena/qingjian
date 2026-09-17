@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use qingjian_platform::Config;
+use qingjian_platform::{Config, Scheme};
 
 use super::paths::{load_glossary, mtime_of};
 use super::{CONFIG_CHECK_INTERVAL, Host};
@@ -27,7 +27,7 @@ impl Host {
             tracing::warn!(%error, "自定义短语配置未应用");
         }
         self.engine.set_mode_keys(config.shortcut.mode);
-        self.engine.set_shuangpin(config.general.shuangpin());
+        self.apply_scheme(config.general.scheme(), config.general.wubi());
         self.translation_mods = config.shortcut.translation_keys();
         self.delete_mods = config.shortcut.delete_keys();
         self.page_size = config.general.page_size();
@@ -102,5 +102,18 @@ impl Host {
         if self.composing() {
             self.refresh();
         }
+    }
+
+    /// 按配置的两条轴装配引擎：拼音侧（全拼 / 双拼 / 注音 / 关）与形码侧（五笔），与 macOS 壳的 `apply_scheme` 同款。
+    /// Linux 壳暂不带五笔码表（随包数据没有 `wubi/wubi86.tsv` 这一项，安装器也不分层它），
+    /// 配置里开了五笔只警告、仍按拼音输入；拼音侧也留着，否则一个候选都没有。
+    fn apply_scheme(&mut self, pinyin: Scheme, wubi: bool) {
+        self.engine.set_shuangpin(pinyin.shuangpin());
+        self.engine.set_zhuyin_mode(pinyin == Scheme::Zhuyin);
+        if wubi {
+            tracing::warn!("Linux 壳暂不支持五笔（[general] wubi），仍按拼音输入");
+        }
+        self.engine.set_phonetic(true);
+        self.engine.set_code_table(None);
     }
 }
