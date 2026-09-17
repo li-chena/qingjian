@@ -113,6 +113,9 @@ pub struct Engine {
     /// 用户定义的固定位置文本。
     custom_phrases: Vec<crate::CustomPhrase>,
 
+    /// 中英混输时中文候选总在英文词前面（缺省关：拼音不像话的输入英文词排第一，常在中文模式里打英文词的人靠它）。
+    chinese_first: bool,
+
     /// 联想提供方，缺省为 [`NoPredictor`]。
     predictor: Box<dyn Predictor>,
 
@@ -233,6 +236,15 @@ pub struct Engine {
 
     /// emoji 表，没有就不出 emoji 候选。
     emoji: Option<EmojiTable>,
+
+    /// 繁体输出模式。
+    traditional: bool,
+
+    /// 繁体转换器。
+    opencc: Option<ferrous_opencc::OpenCC>,
+
+    /// 繁体输出时「繁体 → 原简体」的映射，组句结束清空；学习、译词、撤销都按简体原文走。
+    traditional_map: std::cell::RefCell<HashMap<String, String>>,
 }
 
 /// 英文补全最多几条（`compa` → company / compare / …）。
@@ -320,6 +332,7 @@ impl Engine {
             punctuation: Punctuation::default(),
             full_width_punctuation: true,
             custom_phrases: Vec::new(),
+            chinese_first: false,
             predictor: Box::new(NoPredictor),
             language_model: Box::new(NoLanguageModel),
             sentence_scorer: None,
@@ -360,6 +373,9 @@ impl Engine {
             shuangpin: None,
             zhuyin: false,
             emoji: None,
+            traditional: false,
+            opencc: None,
+            traditional_map: std::cell::RefCell::new(HashMap::new()),
         }
     }
 }

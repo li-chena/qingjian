@@ -3,6 +3,7 @@
 //! 上下文禁了键盘（密码框，见 [`context`](crate::com::context)）时没在组句的键一律放行。
 
 use windows::Win32::Foundation::{FALSE, LPARAM, WPARAM};
+use windows::Win32::UI::Input::KeyboardAndMouse::VK_CAPITAL;
 use windows::Win32::UI::TextServices::{ITfContext, ITfKeyEventSink_Impl};
 use windows::core::{BOOL, GUID, Ref, Result};
 
@@ -12,7 +13,7 @@ use super::TextService_Impl;
 use super::next::Next;
 use crate::client::KeyReply;
 use crate::com::composition::preedit_string;
-use crate::com::key::event::{digit_key, is_edit, is_letter, is_nav, to_key_event};
+use crate::com::key::event::{digit_key, is_edit, is_letter, is_mode_letter, is_nav, to_key_event};
 use crate::com::key::preserved;
 use crate::com::log::log;
 
@@ -99,6 +100,9 @@ impl TextService_Impl {
     }
 
     fn note_key_up(&self, vk: u32) {
+        if vk == u32::from(VK_CAPITAL.0) {
+            self.mode_state.notify();
+        }
         if self.shift_tap.key_up(vk) {
             self.set_english_mode(!self.mode_state.english());
         }
@@ -106,7 +110,7 @@ impl TextService_Impl {
 
     /// 这个键吃不吃，与 Router 的分派对齐；`OnTestKeyDown` 用，无副作用。
     /// 带 Ctrl/Alt/Win 只有组句中的「修饰键 + 数字」送 Server（译词 / 删候选），其余归应用（翻译选中文字走保留键）；
-    /// 字母只有「中文模式、没在组句、按住 Shift 的大写」归应用；组句中功能键 / 方向键 / 可打印字符都吃；
+    /// 字母只有「中文模式、没在组句、按住 Shift 的大写」归应用，其中 V / U / I 仍送 Server：双拼下是表达式 / 问字入口；组句中功能键 / 方向键 / 可打印字符都吃；
     /// 没在组句时数字 / 标点也先「测吃」送去转全角（中英各有一份开关），Server 不转的回 Passthrough 再放行；`?` 是问字前缀。
     fn would_eat(&self, event: &KeyEvent) -> bool {
         // 翻译评审中所有键先吃进来交给 Server 定接受 / 取消。
@@ -122,7 +126,8 @@ impl TextService_Impl {
             return modifiers.caps
                 || modifiers.english_mode
                 || !modifiers.shift
-                || self.shared.composing();
+                || self.shared.composing()
+                || is_mode_letter(vk);
         }
         if self.shared.composing() {
             return is_edit(vk) || is_nav(vk) || event.character.is_some_and(|c| !c.is_control());
@@ -146,6 +151,9 @@ impl TextService_Impl {
         if !self.ensure_connected() {
             return !event.modifiers.has_command_key();
         }
+        // OnTestKeyDown 已声明吃的可打印字符，Server 放行时由输入法自己插入：退回应用的话，企业微信 /
+        // 微信 / notepad++ 这类自绘输入框会把它丢掉。功能键（无字符）仍交给应用。
+        let passthrough_char = event.character.filter(|c| !c.is_control());
         if let Ok(context) = pic.ok() {
             self.shared.set_last_context(Some(context.clone()));
         }
@@ -199,23 +207,45 @@ impl TextService_Impl {
                 }
             }
         };
-        match next {
-            // 放行的键 Server 没动缓冲区，不碰文档（应用处理这个键时光标可能会移）。
-            Next::Document {
-                consumed: false, ..
-            } => false,
-            Next::Document {
-                commit, preedit, ..
-            } => {
+        // 带 Ctrl / Alt / Win 的组合（翻译保留键）放行时仍交还应用，别把热键的字母插进文档。
+        let insertable = !event.modifiers.has_command_key();
+        match (next, passthrough_char) {
+            // 放行 + 没在组句 + 可打印字符：输入法插入，吃掉；Server 顺带交出的英文直输段字母拼在前面。
+            (
+                Next::Document {
+                    consumed: false,
+                    commit,
+                    preedit,
+                },
+                Some(c),
+            ) if insertable && preedit.is_empty() => {
+                let mut text = commit.unwrap_or_default();
+                text.push(c);
+                self.update_document(pic, Some(text), String::new());
+                true
+            }
+            // 放行的功能键：Server 没动缓冲区，交还应用（应用处理这个键时光标可能会移）。
+            (
+                Next::Document {
+                    consumed: false, ..
+                },
+                _,
+            ) => false,
+            (
+                Next::Document {
+                    commit, preedit, ..
+                },
+                _,
+            ) => {
                 self.update_document(pic, commit, preedit);
                 true
             }
             // 读选区是异步的：先吃掉这个键，选区文本在回调里发给 Server。
-            Next::ReadSelection { request } => {
+            (Next::ReadSelection { request }, _) => {
                 self.read_selection(pic, request);
                 true
             }
-            Next::Abort => false,
+            (Next::Abort, _) => false,
         }
     }
 }

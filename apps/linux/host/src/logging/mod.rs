@@ -1,6 +1,6 @@
-//! 输入法进程没有终端,日志只写文件:`$XDG_STATE_HOME/qingjian/logs/qingjian.log.<日期>`
-//! (缺省 `~/.local/state/qingjian/logs`)。按天分文件,只留最近 [`KEEP_DAYS`] 天;
-//! 结构照搬 macOS 壳的 logging 模块,平台差异只有目录约定。
+//! 输入法进程没有终端，日志只写文件：`$XDG_STATE_HOME/qingjian/logs/qingjian.log.<日期>`
+//! （缺省 `~/.local/state/qingjian/logs`）。按天分文件，只留最近 [`KEEP_DAYS`] 天；
+//! 结构照搬 macOS 壳的 logging 模块，平台差异只有目录约定。
 
 mod log_file;
 
@@ -16,19 +16,19 @@ use tracing_subscriber::{EnvFilter, Registry, reload};
 
 pub use log_file::LogFile;
 
-/// 日志文件名前缀,后面跟 `.YYYY-MM-DD`。
+/// 日志文件名前缀，后面跟 `.YYYY-MM-DD`。
 pub const FILE_PREFIX: &str = "qingjian.log";
 
 /// 保留最近几天的日志。
 pub const KEEP_DAYS: i32 = 7;
 
-/// 运行中改级别用的句柄(配置 `[general] log_level` 热切换)。
+/// 运行中改级别用的句柄（配置 `[general] log_level` 热切换）。
 static FILTER: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
 
-/// 环境变量 `RUST_LOG` 给了过滤器就以它为准,配置里的级别不再生效(开发时用)。
+/// 环境变量 `RUST_LOG` 给了过滤器就以它为准，配置里的级别不再生效（开发时用）。
 static ENV_OVERRIDE: AtomicBool = AtomicBool::new(false);
 
-/// 返回的 guard 要活到进程结束,否则文件日志会丢尾巴。启动时按 info 记,配置加载后再按配置切。
+/// 返回的 guard 要活到进程结束，否则文件日志会丢尾巴。启动时按 info 记，配置加载后再按配置切。
 pub fn init() -> Option<WorkerGuard> {
     let dir = log_dir()?;
     std::fs::create_dir_all(&dir).ok()?;
@@ -38,7 +38,7 @@ pub fn init() -> Option<WorkerGuard> {
     ENV_OVERRIDE.store(from_env.is_some(), Ordering::Relaxed);
     let (filter, handle) =
         reload::Layer::new(from_env.unwrap_or_else(|| filter_for(LogLevel::Info)));
-    // init() 在「全局 subscriber 已被设过」时会 panic;本函数在 qj_init 的 FFI 边界上跑,
+    // init() 在「全局 subscriber 已被设过」时会 panic；本函数在 qj_init 的 FFI 边界上跑，
     // panic 会越界 abort 整个 fcitx5——用 try_init 把这种情况消化成「不接管日志」。
     if tracing_subscriber::registry()
         .with(filter)
@@ -76,9 +76,9 @@ fn filter_for(level: LogLevel) -> EnvFilter {
     }
 }
 
-/// 日志目录(XDG state 约定)。
+/// 日志目录（XDG state 约定）。
 pub fn log_dir() -> Option<PathBuf> {
-    // 空串也当没设(与 paths.rs 的 XDG 判法一致),否则日志目录成了相对路径,写进 fcitx5 的 cwd。
+    // 空串也当没设（与 paths.rs 的 XDG 判法一致），否则日志目录成了相对路径，写进 fcitx5 的 cwd。
     if let Some(state) = std::env::var_os("XDG_STATE_HOME")
         && !state.is_empty()
     {
@@ -87,7 +87,7 @@ pub fn log_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state/qingjian/logs"))
 }
 
-/// 删掉目录里日期早于 `today - KEEP_DAYS` 的日志文件;文件名解析不出日期的不动。
+/// 删掉目录里日期早于 `today - KEEP_DAYS` 的日志文件；文件名解析不出日期的不动。
 pub fn prune(dir: &Path, today: jiff::civil::Date) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

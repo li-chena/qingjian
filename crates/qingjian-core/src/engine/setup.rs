@@ -27,9 +27,26 @@ impl Engine {
     }
 
     /// 設置是否啟用注音模式。開啟後鍵盤輸入按大千佈局解析。
+    /// 学习开关（`[general] learning`）：关掉后不再记词频、用户词、个人 n-gram 与敲错表，已学的照常参与排序；
+    /// 私密输入是另一个独立的开关（[`Self::set_private`]）。
+    pub fn set_learning(&mut self, enabled: bool) {
+        self.learner.set_disabled(!enabled);
+    }
+
     pub fn set_zhuyin_mode(&mut self, on: bool) {
         self.zhuyin = on;
         self.forget_span_cache();
+    }
+
+    /// 設置是否啟用繁體輸出模式。
+    pub fn set_traditional_mode(&mut self, on: bool) {
+        self.traditional = on;
+        if on && self.opencc.is_none() {
+            match ferrous_opencc::OpenCC::from_config(ferrous_opencc::config::BuiltinConfig::S2tw) {
+                Ok(opencc) => self.opencc = Some(opencc),
+                Err(error) => tracing::warn!(%error, "繁体转换器初始化失败，候选仍是简体"),
+            }
+        }
     }
 
     /// 目前是否處於注音模式。
@@ -66,13 +83,20 @@ impl Engine {
             .is_some_and(|scheme| scheme.decode(body).pending_initial())
     }
 
-    /// 有效的模式键：双拼下 v / u / i 都是音节键，字母模式键让位，只剩 `?` 开头的问字。
+    /// 有效的模式键：双拼下换成大写字母。
     pub(super) fn modes(&self) -> ModeKeys {
         if self.shuangpin.is_some() {
-            self.modes.letterless()
+            self.modes.shifted()
         } else {
             self.modes
         }
+    }
+
+    /// 缓冲区为空时敲的大写字母该不该进表达式 / 问字模式：只在双拼下、且是模式键的大写时。
+    /// 壳只在中文模式、Caps 灭时问。
+    pub fn takes_mode_letter(&self, c: char) -> bool {
+        let modes = self.modes();
+        self.shuangpin.is_some() && !self.zhuyin && (c == modes.expression || c == modes.question)
     }
 
     /// 缓冲区为空时敲 `?` 该不该进问字模式（配置 `[shortcut] question_mark`）：壳据此决定问号是入口还是标点。
@@ -277,6 +301,16 @@ impl Engine {
 
     pub fn mode_keys(&self) -> ModeKeys {
         self.modes
+    }
+
+    /// 中英混输里中文候选是否总排在英文词前面（配置 `[general] chinese_first`，缺省关）。
+    /// 关着时拼音「不像话」的输入英文词排第一（`hello` 先英文再 荷兰咯）；开了英文词固定第二。
+    pub fn set_chinese_first(&mut self, on: bool) {
+        self.chinese_first = on;
+    }
+
+    pub fn chinese_first(&self) -> bool {
+        self.chinese_first
     }
 
     pub fn with_learner(mut self, learner: Box<dyn Learner>) -> Self {

@@ -56,6 +56,24 @@ impl Engine {
                 .collect(),
             rescored: self.last_rescored.get(),
         });
+
+        if self.traditional
+            && let Some(opencc) = &self.opencc
+        {
+            for candidate in &mut query.candidates.items {
+                if matches!(
+                    candidate.kind,
+                    CandidateKind::Chinese | CandidateKind::Sentence | CandidateKind::Cloud
+                ) {
+                    let traditional_text = opencc.convert(&candidate.text);
+                    self.traditional_map
+                        .borrow_mut()
+                        .insert(traditional_text.clone(), candidate.text.clone());
+                    candidate.text = traditional_text;
+                }
+            }
+        }
+
         Ok(query)
     }
 
@@ -235,16 +253,28 @@ impl Engine {
                 translation: None,
             })
             .collect();
-        self.insert_english(&mut items, unlikely);
+        // 中文优先：整句先进去占第一，英文词紧跟其后（第二）；关掉时英文词先进、整句排在开头的英文后面
+        if self.chinese_first {
+            self.insert_sentence(
+                &mut items,
+                &segmentations,
+                correction.is_none(),
+                english_tail.as_ref().filter(|_| correction.is_none()),
+                head_wins,
+            );
+            self.insert_english(&mut items, unlikely);
+        } else {
+            self.insert_english(&mut items, unlikely);
+            self.insert_sentence(
+                &mut items,
+                &segmentations,
+                correction.is_none(),
+                english_tail.as_ref().filter(|_| correction.is_none()),
+                head_wins,
+            );
+        }
         // 快捷候选按敲的键认（`rq` 日期），双拼下也是
         self.insert_shortcuts(&mut items, keys);
-        self.insert_sentence(
-            &mut items,
-            &segmentations,
-            correction.is_none(),
-            english_tail.as_ref().filter(|_| correction.is_none()),
-            head_wins,
-        );
         self.insert_emoji(&mut items);
         let rank = start.elapsed();
 

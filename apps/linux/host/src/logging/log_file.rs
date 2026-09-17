@@ -1,4 +1,4 @@
-//! 按天分文件的日志写入端:日期变了换文件,文件在磁盘上被删了就重开(与 macOS 壳同款)。
+//! 按天分文件的日志写入端：日期变了换文件，文件在磁盘上被删了就重开（与 macOS 壳同款）。
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 
 use super::FILE_PREFIX;
 
-/// 日志写入端。每次写之前 fstat 一次(`nlink == 0` 说明当前描述符指向的 inode 已从目录里摘掉),
-/// 代价可以忽略,且写入本来就在 `non_blocking` 的后台线程。
+/// 日志写入端。每次写之前 fstat 一次（`nlink == 0` 说明当前描述符指向的 inode 已从目录里摘掉），
+/// 代价可以忽略，且写入本来就在 `non_blocking` 的后台线程。
 pub struct LogFile {
     /// 日志目录。
     dir: PathBuf,
 
-    /// 当前打开的文件及其日期;打不开时为 `None`,下次写再试。
+    /// 当前打开的文件及其日期；打不开时为 `None`，下次写再试。
     current: Option<(jiff::civil::Date, File)>,
 }
 
@@ -27,7 +27,7 @@ impl LogFile {
         dir.join(format!("{FILE_PREFIX}.{date}"))
     }
 
-    /// 拿到今天的文件:日期变了、还没打开、或者文件已被删掉时重新打开(追加模式)。
+    /// 拿到今天的文件：日期变了、还没打开、或者文件已被删掉时重新打开（追加模式）。
     fn file(&mut self) -> io::Result<&mut File> {
         let today = jiff::Zoned::now().date();
         let stale = match &self.current {

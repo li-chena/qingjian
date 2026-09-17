@@ -22,7 +22,7 @@ use qingjian_core::Engine;
 use qingjian_platform::LocalModelConfig;
 use qingjian_platform::protocol::{ClientMessage, Frame, ScreenRect, ServerMessage, SessionId};
 
-pub use self::candidates::{CandidateSink, NoopSink};
+pub use self::candidates::{CandidateSink, NoopSink, RenderSettings};
 use self::composed::Composed;
 pub use self::config::RouterConfig;
 use self::reload::ConfigReload;
@@ -71,7 +71,7 @@ pub struct Router {
     /// 当前高亮候选在布局里的下标（跨页）。
     highlight: usize,
 
-    /// 这轮查询里动过高亮：英文模式空格只在动过之后才选高亮词。
+    /// 这轮查询里动过高亮：动过就不再拿重排结果换掉候选；注音模式数字键动过之后才选词。
     navigated: bool,
 
     /// 上次把学习数据落盘的时间。
@@ -146,6 +146,7 @@ impl Router {
     }
 
     pub fn set_candidate_sink(&mut self, sink: Box<dyn CandidateSink>) {
+        sink.configure(self.config.render_settings());
         self.candidates = sink;
     }
 

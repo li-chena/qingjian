@@ -7,16 +7,21 @@ use crate::panel::controls::{field, index_of, page};
 use crate::panel::{Message, Settings};
 
 /// 学习语言：界面名 + 配置写法。
-pub(crate) const LANGUAGES: [(&str, &str); 3] =
-    [("英语", "en"), ("日语", "ja"), ("西班牙语", "es")];
+pub(crate) const LANGUAGES: [(&str, &str); 4] = [
+    ("英语", "en"),
+    ("日语", "ja"),
+    ("西班牙语", "es"),
+    ("不显示译文", "off"),
+];
 
 /// 双拼方案：界面名 + 配置写法（空串为全拼）。
-pub(crate) const SHUANGPIN: [(&str, &str); 5] = [
+pub(crate) const SHUANGPIN: [(&str, &str); 6] = [
     ("全拼（不启用双拼）", ""),
     ("小鹤双拼", "xiaohe"),
     ("自然码", "ziranma"),
     ("微软双拼", "microsoft"),
     ("搜狗双拼", "sogou"),
+    ("小浪双拼", "xiaolang"),
 ];
 
 fn string_combo(
@@ -36,7 +41,7 @@ pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> 
     let rows = [
         field(
             "学习语言",
-            "候选词右侧显示哪种语言的译词，只列出装了释义表的语言。",
+            "候选词右侧显示哪种语言的译词，只列出装了释义表的语言；「不显示译文」同时关掉生词标记与释义兜底。",
             string_combo(
                 &LANGUAGES,
                 &g.learning_language,
@@ -54,7 +59,7 @@ pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> 
         ),
         field(
             "双拼",
-            "开双拼后 v、u、i 是音节键，表达式与问字模式只能用 ? 开头进；微软、搜狗方案的 ; 键是 ing。",
+            "开双拼后 v、u、i 是音节键，表达式与问字模式改用 Shift+V、Shift+U 进；微软、搜狗方案的 ; 键是 ing。",
             string_combo(
                 &SHUANGPIN,
                 &g.shuangpin,
@@ -67,6 +72,13 @@ pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> 
             ToggleSwitch::new()
                 .is_on(g.zhuyin)
                 .on_toggled(context.callback(Message::Zhuyin)),
+        ),
+        field(
+            "繁体输出",
+            "打字时将候选词转换为繁体中文。",
+            ToggleSwitch::new()
+                .is_on(g.traditional)
+                .on_toggled(context.callback(Message::Traditional)),
         ),
         field(
             "中文模式标点转全角",
@@ -96,6 +108,13 @@ pub(crate) fn view(settings: &Settings, context: &mut ViewContext<Settings>) -> 
                 .is_on(english_off)
                 .is_enabled(g.english_candidates)
                 .on_toggled(context.callback(Message::EnglishOffInApps)),
+        ),
+        field(
+            "输入拼音时中文候选排在英文词前面",
+            "开着时整段输入是英文词时（hello、key）英文词排第二，空格上屏的仍是中文；关着（缺省）拼音不成立的输入英文词排第一。",
+            ToggleSwitch::new()
+                .is_on(g.chinese_first)
+                .on_toggled(context.callback(Message::ChineseFirst)),
         ),
     ];
     page("通用", StackPanel::new().spacing(16.0).children(rows))
