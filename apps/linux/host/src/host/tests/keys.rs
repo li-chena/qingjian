@@ -103,7 +103,7 @@ fn apostrophe_separates_syllables() {
 fn shuangpin_semicolon_completes_syllable() {
     // 微软/搜狗双拼的 ； 是 ing 键：末尾落单声母时进缓冲区，不当标点。
     let mut config = qingjian_platform::Config::default();
-    config.general.shuangpin = "microsoft".to_owned();
+    config.general.scheme = "microsoft".to_owned();
     let mut h = host_with(config);
     type_str(&mut h, "x");
     assert!(h.engine.takes_semicolon(), "落单声母 x 后 ; 应是 ing");

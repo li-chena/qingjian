@@ -1,6 +1,7 @@
-use qingjian_core::ShuangpinScheme;
 use qingjian_platform::protocol::KeyModifiers;
-use qingjian_platform::{AppsConfig, CandidateRenderer, Config, KeyCombo, LayoutMode, ThemeMode};
+use qingjian_platform::{
+    AppsConfig, CandidateRenderer, Config, KeyCombo, LayoutMode, PreeditMode, Scheme, ThemeMode,
+};
 
 use super::RenderSettings;
 
@@ -24,6 +25,9 @@ pub struct RouterConfig {
 
     /// 候选窗口字体的字族名（`[general] font`），空为系统字体；只对青简渲染器生效。
     pub font: String,
+
+    /// 拼音显示位置（`[general] preedit`）。
+    pub preedit: PreeditMode,
 
     /// 翻页键对（`[general] page_keys`，上一页 / 下一页）。
     pub page_keys: (char, char),
@@ -58,8 +62,11 @@ pub struct RouterConfig {
     /// 状态条记住的位置（`[status_bar] x` / `y`，内容左上角物理像素）。
     pub status_pos: Option<(i32, i32)>,
 
-    /// 双拼方案（`[general] shuangpin`）；全拼为 `None`。
-    pub shuangpin: Option<ShuangpinScheme>,
+    /// 拼音侧方案（`[general] scheme`）。
+    pub scheme: Scheme,
+
+    /// 形码侧开没开（`[general] wubi`）。与拼音同时开着就是混输。
+    pub wubi: bool,
 }
 
 impl RouterConfig {
@@ -86,11 +93,12 @@ impl From<&Config> for RouterConfig {
             theme: config.general.theme,
             renderer: config.general.renderer,
             font: config.general.font.trim().to_owned(),
+            preedit: config.general.preedit,
             page_keys: config.general.page_keys(),
             english_candidates: config.general.english_candidates,
             full_width: config.general.full_width_punctuation,
             english_full_width: config.general.english_full_width_punctuation,
-            zhuyin: config.general.zhuyin,
+            zhuyin: config.general.is_zhuyin(),
             apps: config.apps.clone(),
             translation_keys: {
                 let (first, second) = config.shortcut.translation_keys();
@@ -100,7 +108,8 @@ impl From<&Config> for RouterConfig {
             translate_selection: config.shortcut.translate_selection,
             status_enabled: config.status_bar.enabled,
             status_pos: config.status_bar.x.zip(config.status_bar.y),
-            shuangpin: config.general.shuangpin(),
+            scheme: config.general.scheme(),
+            wubi: config.general.wubi(),
         }
     }
 }

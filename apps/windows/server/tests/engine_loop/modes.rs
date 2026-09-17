@@ -20,6 +20,10 @@ fn chinese_punctuation_is_full_width_only_when_not_composing() {
     assert_eq!(press(&mut router, period).0, KeyOutcome::Passthrough);
     assert_eq!(press(&mut router, period).1, Some("。".to_owned()));
 
+    // 小键盘的点不跟在数字后面也保持半角。
+    let keypad_period = KeyEvent::new(0x6E, Some('.'), Default::default());
+    assert_eq!(press(&mut router, keypad_period).0, KeyOutcome::Passthrough);
+
     // 组句中：标点进英文直输段，不转。
     type_letters(&mut router, "ni");
     let (outcome, commit, frame) = press(&mut router, comma);
@@ -230,7 +234,7 @@ fn bare_question_mark_is_half_width_when_full_width_is_off() {
 #[test]
 fn shuangpin_semicolon_stays_in_buffer_in_question_mode() {
     let mut router = router_asking_with(RouterConfig {
-        shuangpin: Some(ShuangpinScheme::Microsoft),
+        scheme: Scheme::Shuangpin(ShuangpinScheme::Microsoft),
         ..RouterConfig::default()
     });
     // 微软双拼的 `;` 是 ing 键：问字模式下末尾有落单声母时进缓冲区，而不是把候选上屏。
@@ -245,7 +249,7 @@ fn shuangpin_semicolon_stays_in_buffer_in_question_mode() {
 #[test]
 fn shuangpin_enters_modes_with_shifted_letters() {
     let mut router = router_with(RouterConfig {
-        shuangpin: Some(ShuangpinScheme::Xiaohe),
+        scheme: Scheme::Shuangpin(ShuangpinScheme::Xiaohe),
         ..RouterConfig::default()
     });
     // Shift+V 进表达式：数字和运算符进缓冲区，空格上屏结果。

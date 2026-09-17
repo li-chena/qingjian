@@ -64,7 +64,7 @@ fn custom_phrases_config_applies() {
 fn shuangpin_config_applies() {
     // 双拼（小鹤）：u=sh、i=i，敲 ui 应出「是」；全拼下 ui 不该出。
     let mut config = qingjian_platform::Config::default();
-    config.general.shuangpin = "xiaohe".to_owned();
+    config.general.scheme = "xiaohe".to_owned();
     let mut h = host_with(config);
     type_str(&mut h, "ui");
     let has_shi = (0..h.layout.len())

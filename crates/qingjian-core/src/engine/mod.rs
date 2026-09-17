@@ -29,7 +29,7 @@ mod vocabulary;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use qingjian_dictionary::{Dictionary, Match, WordList};
+use qingjian_dictionary::{CodeTable, Dictionary, Match, WordList};
 
 pub use alignment::Alignment;
 pub use annotation::AnnotationReport;
@@ -234,6 +234,15 @@ pub struct Engine {
     /// 注音模式开关，開著時緩衝區裡是注音大千鍵位，查詞前先解成拼音（見 [`crate::zhuyin`]）。
     zhuyin: bool,
 
+    /// 形码码表（五笔）。`Some` 时编码参与查询，按前缀查表（见 [`Engine::query_code`]）。
+    code: Option<CodeTable>,
+
+    /// 拼音侧（全拼 / 双拼 / 注音）参不参与查询，缺省参与。
+    ///
+    /// 与 `code` 组合出三种情形：只有拼音（形码关）、只有形码（拼音关，`[general] scheme = "none"`）、
+    /// **两边都开 = 混输**（编码打全的形码候选在前，见 [`Engine::query_mixed`]）。两个都关着时按拼音走。
+    phonetic: bool,
+
     /// emoji 表，没有就不出 emoji 候选。
     emoji: Option<EmojiTable>,
 
@@ -246,6 +255,9 @@ pub struct Engine {
     /// 繁体输出时「繁体 → 原简体」的映射，组句结束清空；学习、译词、撤销都按简体原文走。
     traditional_map: std::cell::RefCell<HashMap<String, String>>,
 }
+
+/// 形码编码最长几位（五笔四码）：混输下超过它的输入只可能是拼音。
+const MAX_CODE_LENGTH: usize = 4;
 
 /// 英文补全最多几条（`compa` → company / compare / …）。
 const ENGLISH_COMPLETIONS: usize = 3;
@@ -372,6 +384,8 @@ impl Engine {
             fuzzy: FuzzyRules::default(),
             shuangpin: None,
             zhuyin: false,
+            code: None,
+            phonetic: true,
             emoji: None,
             traditional: false,
             opencc: None,
