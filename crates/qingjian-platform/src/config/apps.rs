@@ -99,7 +99,10 @@ fn matches_app(pattern: &str, app: &str) -> bool {
     let pattern = pattern.trim();
     match pattern.strip_suffix('*') {
         Some(prefix) => {
-            app.len() >= prefix.len() && app[..prefix.len()].eq_ignore_ascii_case(prefix)
+            // 应用名不保证是 ASCII（Windows 的 exe 文件名、Linux 的 app_id / WM_CLASS 都可以带非 ASCII 字符）：
+            // 按字节切片会切在字符中间 panic，`get` 切不到就是不匹配。
+            app.get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
         }
         None => pattern.eq_ignore_ascii_case(app),
     }
@@ -159,5 +162,19 @@ mod tests {
         assert!(matches_app("com.jetbrains.*", "com.jetbrains.goland"));
         assert!(!matches_app("com.jetbrains.*", "com.jetbrain"));
         assert!(matches_app("*", "anything"));
+    }
+
+    #[test]
+    fn prefix_patterns_survive_multibyte_app_names() {
+        // 名单里有 `*` 前缀项时，多字节应用名的第 prefix.len() 字节可能落在字符中间：
+        // 必须判为不匹配，不许 panic。
+        let apps = AppsConfig::with_english_candidates_off(&["jetbrains-*", "code"]);
+        assert!(!apps.english_candidates_off("日本語入力テスト"));
+        assert!(!apps.english_candidates_off("abc日本語"));
+        assert!(!apps.english_candidates_off("日本語"));
+        assert!(
+            apps.english_candidates_off("jetbrains-idea"),
+            "既有前缀匹配不受影响"
+        );
     }
 }
