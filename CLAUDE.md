@@ -23,7 +23,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `crates/qingjian-render`：自绘渲染器（spike 中，分支 renderer-spike）：候选窗一帧 + 主题 → 位图，各平台只贴图。见 `docs/design/rendering.md`。
 - `apps/cli`：Core 的验证工具：查询、逐键计时、输入日志回放、整句评测、常数扫描。排序 / 整句 / 纠错的改动先跑它再合。
 - `apps/macos`：IMK 壳，按 `app / host / imk / candidates / menubar / preferences` 分目录；`scripts/bundle.sh --install` 装到本机，`--pkg` 出分发包。
-- `apps/linux`：Fcitx5 壳：`fcitx5-shim`（薄 C++ 插件，每件事一两行转发）+ `host`（Rust staticlib：Engine 装配与键路由），同进程 C ABI 边界；`install.sh` 用户级安装（双模式），`pack.sh` 出自包含 tarball。设计见 `docs/design/linux-fcitx5.md`。
+- `apps/linux`：Fcitx5 壳：`fcitx5-shim`（薄 C++ 插件，每件事一两行转发）+ `host`（Rust staticlib：Engine 装配与键路由），同进程 C ABI 边界；`install.sh` 用户级安装（双模式），`pack.sh` 出自包含 tarball，`theme/` 是 classicui 青简主题（内部分支专有，PR 不带）。设计见 `docs/design/linux-fcitx5.md`。
 - `apps/windows`：`server`（Server 进程：Engine + IPC + 自绘候选窗与状态条）+ `tsf`（TSF DLL）+ `settings`（WinUI 3）+ `installer`（Inno）。DLL 不能带 Engine 的依赖树，所以是两个 package。
 - `tools/dict-convert`、`tools/gloss-gen`、`tools/corpus`：产品数据生成（词库 / 语言模型 / 释义表 / emoji / 英文词表），输出到 `data/generated/`（gitignore）。
 - `assets/`：随包数据源与样例，各目录有 README 写来源与许可。雾凇拼音（GPL）已彻底移除，不要再引入。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 打一个自包含的青简 Linux 安装包(tarball)：内含 .so + conf + 数据 + install.sh。
+# 打一个自包含的青简 Linux 安装包(tarball)：内含 .so + conf + 主题 + 数据 + install.sh。
 # 解开后 `bash install.sh` 即装，不依赖 git 仓库，也不需要 rust 工具链。
 # 用法：bash apps/linux/pack.sh   → 产物在 dist/qingjian-linux-<版本>.tar.gz
 set -euo pipefail
@@ -20,13 +20,16 @@ name="qingjian-linux-${version}-${hash}"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 payload="$stage/$name"
-mkdir -p "$payload"/{conf,data}
+mkdir -p "$payload"/{conf,theme/qingjian,theme/qingjian-dark,data}
 
 # 产物 + 元数据
 cp "$so" "$payload/libqingjian.so"
 cp "$repo/apps/linux/install.sh" "$payload/install.sh"
 cp "$repo/apps/linux/fcitx5-shim/conf/addon-qingjian.conf" "$payload/conf/"
 cp "$repo/apps/linux/fcitx5-shim/conf/inputmethod-qingjian.conf" "$payload/conf/"
+for t in qingjian qingjian-dark; do
+    cp "$repo/apps/linux/theme/$t/"* "$payload/theme/$t/"
+done
 # 数据平铺进 data/（install.sh 分发模式从这里取）。
 # 产品数据（data/generated，由 gh release download data 取回）优先；打包过的 .qj 在就不再带同名 tsv 样例源。
 gen="$repo/data/generated"
@@ -76,6 +79,7 @@ cat > "$payload/README.txt" <<EOF
 卸载：
   rm -f ~/.local/lib/fcitx5/libqingjian.so
   rm -f ~/.local/share/fcitx5/addon/qingjian.conf ~/.local/share/fcitx5/inputmethod/qingjian.conf
+  rm -rf ~/.local/share/fcitx5/themes/qingjian ~/.local/share/fcitx5/themes/qingjian-dark
   rm -f ~/.config/environment.d/qingjian-fcitx5.conf
   （词库与学习数据在 ~/.local/share/qingjian，想彻底清也一并删）
   然后 fcitx5 -rd 重启

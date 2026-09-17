@@ -2,7 +2,7 @@
 # 青简 Linux 端用户级安装：不动系统目录，全部落用户目录。
 # 双模式（安装逻辑单一真相源）：
 #   开发模式 = 在 git 仓库里跑(bash apps/linux/install.sh)，从 build/ 与 assets/ 取。
-#   分发模式 = 在解开的安装包里跑(bash install.sh)，从脚本同目录的 libqingjian.so/conf/data 取。
+#   分发模式 = 在解开的安装包里跑(bash install.sh)，从脚本同目录的 libqingjian.so/conf/theme/data 取。
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +10,7 @@ if [[ -f "$here/libqingjian.so" ]]; then
     # 分发模式：payload 就在脚本旁。
     so="$here/libqingjian.so"
     src_conf="$here/conf"
+    src_theme="$here/theme"
     src_data="$here/data"
 else
     # 开发模式：回到仓库根。
@@ -17,6 +18,7 @@ else
     so="$repo/build/fcitx5-shim/libqingjian.so"
     [[ -f $so ]] || { echo "先构建：cargo build -p qingjian-linux-host --release && cmake -S apps/linux/fcitx5-shim -B build/fcitx5-shim && cmake --build build/fcitx5-shim" >&2; exit 1; }
     src_conf="$repo/apps/linux/fcitx5-shim/conf"
+    src_theme="$repo/apps/linux/theme"
     src_data="$repo/assets"  # 开发模式数据分散在 assets/lexicon 与 assets/glossary，下面单独处理
 fi
 
@@ -151,6 +153,31 @@ en_eng = false
 in_ing = false
 QJCONF
 fi
+
+# 青简候选窗主题（亮/暗两套）+ classicui 配置：竖排、青简主题、跟随系统明暗。
+theme_dir="$data_dir/themes"
+for t in qingjian qingjian-dark; do
+    install -Dm644 "$src_theme/$t/theme.conf"    "$theme_dir/$t/theme.conf"
+    install -Dm644 "$src_theme/$t/panel.svg"     "$theme_dir/$t/panel.svg"
+    install -Dm644 "$src_theme/$t/highlight.svg" "$theme_dir/$t/highlight.svg"
+done
+
+classicui_conf="$HOME/.config/fcitx5/conf/classicui.conf"
+mkdir -p "$(dirname "$classicui_conf")"
+touch "$classicui_conf"
+set_conf() { # set_conf <key> <value>：有则替换，无则追加（classicui 配置是平铺 key=value）
+    local key="$1" value="$2"
+    if grep -q "^$key=" "$classicui_conf"; then
+        sed -i "s|^$key=.*|$key=$value|" "$classicui_conf"
+    else
+        echo "$key=$value" >> "$classicui_conf"
+    fi
+}
+set_conf "Theme" "qingjian"
+set_conf "DarkTheme" "qingjian-dark"
+set_conf "UseDarkTheme" "True"
+set_conf "Vertical Candidate List" "True"
+set_conf "Font" "Sans 12"
 
 # .so 的搜索路径要靠 FCITX_ADDON_DIRS（conf 文件用户目录原生支持，不用它）。
 # 写进 environment.d 供下次登录；本次立即生效靠下面带环境变量重启。
